@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PromptFlow</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-mark">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1 class="brand-title">PromptFlow</h1>
+          <span class="brand-subtitle">ChatGPT Image Automation</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button type="button" id="btnPopOut" class="icon-btn" title="Open in Detached Window (Keeps UI visible while ChatGPT runs)" aria-label="Pop Out Window">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+            <polyline points="15 3 21 3 21 9"></polyline>
+            <line x1="10" y1="14" x2="21" y2="3"></line>
+          </svg>
+        </button>
+        <button type="button" id="btnLogs" class="icon-btn" title="View Debug Logs" aria-label="Debug Logs">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="4 17 10 11 4 5"></polyline>
+            <line x1="12" y1="19" x2="20" y2="19"></line>
+          </svg>
+        </button>
+        <button type="button" id="btnHistory" class="icon-btn" title="Session History" aria-label="History">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+        </button>
+        <button type="button" id="btnSettings" class="icon-btn" title="Settings" aria-label="Settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main id="mainView" class="view-panel active">
+      <!-- Reference Image Section -->
+      <section class="card section-ref-image">
+        <div class="section-label">
+          <span>REFERENCE IMAGE</span>
+          <span class="sub-label">Required for image context</span>
+        </div>
+
+        <div id="dropZone" class="drop-zone">
+          <input type="file" id="fileInput" accept="image/png, image/jpeg, image/jpg, image/webp" class="visually-hidden">
+          <div class="drop-zone-prompt">
+            <svg class="drop-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+              <circle cx="8.5" cy="8.5" r="1.5"></circle>
+              <polyline points="21 15 16 10 5 21"></polyline>
+            </svg>
+            <div class="drop-text-primary">Drop image here or <span class="highlight">browse</span></div>
+            <div class="drop-text-secondary">Supports PNG, JPG, JPEG, WEBP</div>
+          </div>
+        </div>
+
+        <div id="imagePreviewContainer" class="image-preview-container hidden">
+          <div class="preview-left">
+            <img id="imageThumbnail" class="image-thumbnail" alt="Reference preview" src="">
+            <div class="preview-info">
+              <span id="imageFileName" class="image-file-name">reference.png</span>
+              <span id="imageFileSize" class="image-file-size">124 KB</span>
+            </div>
+          </div>
+          <button id="btnRemoveImage" class="btn-remove" title="Remove reference image">Remove</button>
+        </div>
+      </section>
+
+      <!-- Prompt Queue Section -->
+      <section class="card section-prompts">
+        <div class="section-label-row">
+          <div class="section-label">
+            <span>PROMPTS</span>
+            <span id="activePromptCounter" class="badge-count">6 / 6 Active</span>
+          </div>
+          <div class="prompt-header-actions">
+            <button type="button" id="btnRestoreDefaults" class="btn-text" title="Restore all 6 default prompts">Restore defaults</button>
+            <span class="action-divider">•</span>
+            <button type="button" id="btnClearAllPrompts" class="btn-text" title="Clear all prompt texts">Clear all</button>
+          </div>
+        </div>
+
+        <div id="promptQueueContainer" class="prompt-queue-list">
+          <!-- Dynamically populated 6 prompt items -->
+        </div>
+      </section>
+
+      <!-- Status & Progress Panel -->
+      <section class="card section-status">
+        <div class="status-header">
+          <div class="status-indicator-row">
+            <span id="statusIndicatorDot" class="status-dot idle"></span>
+            <span id="statusText" class="status-title">Ready</span>
+          </div>
+          <span id="progressSummary" class="progress-count">0 / 0 completed</span>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="progress-track">
+          <div id="progressBarFill" class="progress-fill" style="width: 0%;"></div>
+        </div>
+
+        <!-- Per-prompt status mini list -->
+        <div id="statusList" class="status-breakdown">
+          <!-- Populated dynamically -->
+        </div>
+      </section>
+
+      <!-- Batch Download Section (ZIP & name_X) -->
+      <section class="card section-batch-download">
+        <div class="section-label-row">
+          <div class="section-label">
+            <span>BATCH DOWNLOAD</span>
+            <span class="sub-label">ZIP Bundle or Individual Files</span>
+          </div>
+          <span id="batchDownloadCounter" class="badge-count">0 Ready</span>
+        </div>
+
+        <div class="batch-download-controls">
+          <div class="batch-input-field">
+            <span class="batch-prefix-label">Prefix:</span>
+            <input type="text" id="inputBaseName" value="name" placeholder="name" spellcheck="false">
+            <span class="batch-suffix-label">_X.png / .zip</span>
+          </div>
+
+          <!-- Primary: Single ZIP Download (0 Permission Prompts) -->
+          <button type="button" id="btnDownloadZip" class="btn btn-download-zip" disabled>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M21 8v13H3V8"></path>
+              <path d="M1 3h22v5H1z"></path>
+              <path d="M10 12h4"></path>
+            </svg>
+            <span>DOWNLOAD AS ZIP (1 File - No Prompts)</span>
+          </button>
+
+          <!-- Secondary: Individual Files -->
+          <button type="button" id="btnDownloadAll" class="btn btn-download-secondary" disabled>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span>Download Individual Files (0)</span>
+          </button>
+        </div>
+
+        <!-- Helpful Browser Permission Solution Tip -->
+        <div class="batch-tip-box">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="16" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12.01" y2="8"></line>
+          </svg>
+          <div class="batch-tip-content">
+            <strong>Browser asking permission?</strong> Use <b>ZIP</b> for 1-click download with zero prompts. For separate files, turn off <i>"Ask where to save each file"</i> in <code>chrome://settings/downloads</code>.
+          </div>
+        </div>
+
+        <div id="batchDownloadStatus" class="batch-status-msg">Images will be packaged as <span id="batchNamingSample">name_images.zip or name_1.png...</span></div>
+      </section>
+
+      <!-- Controls Action Bar -->
+      <section class="action-bar">
+        <button type="button" id="btnStart" class="btn btn-primary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          START AUTOMATION
+        </button>
+        <button type="button" id="btnStop" class="btn btn-danger" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+          </svg>
+          STOP
+        </button>
+        <button type="button" id="btnReset" class="btn btn-secondary" title="Reset all prompts, reference image, and progress">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+          </svg>
+          <span id="btnResetText">Reset</span>
+        </button>
+      </section>
+    </main>
+
+    <!-- Settings View (Slide-over) -->
+    <div id="settingsView" class="view-panel overlay-view">
+      <div class="overlay-header">
+        <h2>Settings</h2>
+        <button id="btnCloseSettings" class="icon-btn" aria-label="Close Settings">✕</button>
+      </div>
+      <div class="overlay-content">
+        <div class="setting-group">
+          <label for="settingTimeout">Generation Timeout (minutes)</label>
+          <input type="number" id="settingTimeout" min="1" max="15" value="5">
+          <span class="setting-hint">Max time to wait for ChatGPT to finish generating an image.</span>
+        </div>
+
+        <div class="setting-group">
+          <label for="settingRetries">Download Retries</label>
+          <input type="number" id="settingRetries" min="1" max="10" value="3">
+          <span class="setting-hint">Attempts if download verification fails or is interrupted.</span>
+        </div>
+
+        <div class="setting-group">
+          <label for="settingDelay">Delay Between Prompts (seconds)</label>
+          <input type="number" id="settingDelay" min="0" max="30" value="2">
+          <span class="setting-hint">Cooldown period before submitting the next prompt.</span>
+        </div>
+
+        <div class="setting-group">
+          <label for="settingFolder">Download Folder</label>
+          <input type="text" id="settingFolder" value="PromptFlow">
+          <span class="setting-hint">Folder name inside your browser's default Downloads directory.</span>
+        </div>
+
+        <div class="setting-group">
+          <label for="settingFolderPattern">Folder Organization</label>
+          <select id="settingFolderPattern">
+            <option value="flat">Flat (PromptFlow/01_prompt.png)</option>
+            <option value="date">Date-based (PromptFlow/YYYY-MM-DD/01_prompt.png)</option>
+            <option value="session">Session-based (PromptFlow/session_xxx/01_prompt.png)</option>
+          </select>
+        </div>
+
+        <div class="setting-toggle-row">
+          <label for="settingKeepHistory">Keep Session History</label>
+          <input type="checkbox" id="settingKeepHistory" checked>
+        </div>
+
+        <div class="setting-toggle-row">
+          <label for="settingDebugMode">Debug Logging Mode</label>
+          <input type="checkbox" id="settingDebugMode" checked>
+        </div>
+
+        <div class="overlay-footer">
+          <button id="btnSaveSettings" class="btn btn-primary full-width">Save Settings</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- History View (Slide-over) -->
+    <div id="historyView" class="view-panel overlay-view">
+      <div class="overlay-header">
+        <h2>Session History</h2>
+        <button id="btnCloseHistory" class="icon-btn" aria-label="Close History">✕</button>
+      </div>
+      <div class="overlay-content">
+        <div id="historyListContainer" class="history-list">
+          <!-- Populated dynamically -->
+        </div>
+        <div class="overlay-footer">
+          <button id="btnClearHistory" class="btn btn-secondary full-width">Clear History</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Debug Logs View (Slide-over) -->
+    <div id="logsView" class="view-panel overlay-view">
+      <div class="overlay-header">
+        <h2>Debug Logs</h2>
+        <button id="btnCloseLogs" class="icon-btn" aria-label="Close Logs">✕</button>
+      </div>
+      <div class="overlay-content flex-column">
+        <div class="logs-toolbar">
+          <select id="logFilter" class="select-sm">
+            <option value="all">All Levels</option>
+            <option value="info">Info</option>
+            <option value="warn">Warn</option>
+            <option value="error">Error</option>
+            <option value="success">Success</option>
+          </select>
+          <div class="logs-btn-group">
+            <button id="btnCopyLogs" class="btn-sm" title="Copy logs to clipboard">Copy</button>
+            <button id="btnClearLogs" class="btn-sm" title="Clear logs">Clear</button>
+          </div>
+        </div>
+        <div id="logsContainer" class="logs-terminal">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

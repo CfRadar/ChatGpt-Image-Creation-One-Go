@@ -1,0 +1,18 @@
+{
+  "name": "promptflow",
+  "version": "1.0.0",
+  "description": "Chrome Manifest V3 extension automating ChatGPT image generation queues with reference image upload and automatic downloads.",
+  "scripts": {
+    "test": "node test/run-tests.js",
+    "generate-icons": "node scripts/generate-icons.js"
+  },
+  "keywords": [
+    "chrome-extension",
+    "manifest-v3",
+    "chatgpt",
+    "image-generation",
+    "automation"
+  ],
+  "author": "PromptFlow",
+  "license": "MIT"
+}
