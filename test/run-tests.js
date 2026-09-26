@@ -419,27 +419,29 @@ console.log('\n[Test Suite 7] 6 Default Fashion Prompts & Custom Modification Li
   assert(Array.isArray(DEFAULT_PROMPT_TEXTS) && DEFAULT_PROMPT_TEXTS.length === 6, 'DEFAULT_PROMPT_TEXTS contains exactly 6 prompts');
   assert(Array.isArray(DEFAULT_PROMPT_TITLES) && DEFAULT_PROMPT_TITLES.length === 6, 'DEFAULT_PROMPT_TITLES contains 6 matching titles');
 
-  // Verify Prompt 1: Front View (Focused mid-thigh crop matching reference image 2)
-  assert(DEFAULT_PROMPT_TEXTS[0].includes('FRONT VIEW ONLY') && DEFAULT_PROMPT_TEXTS[0].includes('oversized T-shirt'), 'Prompt 1 contains FRONT VIEW ONLY & oversized T-shirt instructions');
+  // Verify Prompt 1: Front View (Model in printed T-shirt)
+  assert(DEFAULT_PROMPT_TEXTS[0].includes('FRONT VIEW ONLY') && DEFAULT_PROMPT_TEXTS[0].includes('oversized'), 'Prompt 1 contains FRONT VIEW ONLY & oversized T-shirt instructions');
   assert(DEFAULT_PROMPT_TEXTS[0].includes('MID-THIGH') && DEFAULT_PROMPT_TEXTS[0].includes('NO feet'), 'Prompt 1 enforces tight mid-thigh crop with no feet or shoes');
-  assert(DEFAULT_PROMPT_TEXTS[0].includes('hot and sexy'), 'Prompt 1 specifies hot and sexy model aesthetics');
+  assert(DEFAULT_PROMPT_TEXTS[0].includes('adult female'), 'Prompt 1 defaults to adult female model');
+  assert(DEFAULT_PROMPT_TEXTS[0].includes('printed graphic/design clearly visible'), 'Prompt 1 explicitly features model wearing the front printed graphic');
 
-  // Verify Prompt 2: Back View (Focused mid-thigh crop)
-  assert(DEFAULT_PROMPT_TEXTS[1].includes('BACK VIEW') && DEFAULT_PROMPT_TEXTS[1].includes('NO printed graphic'), 'Prompt 2 contains BACK VIEW & plain back instructions');
+  // Verify Prompt 2: Back View (Model showing back of T-shirt)
+  assert(DEFAULT_PROMPT_TEXTS[1].includes('BACK VIEW ONLY') && DEFAULT_PROMPT_TEXTS[1].includes('clean back'), 'Prompt 2 contains BACK VIEW ONLY & clean back instructions');
+  assert(DEFAULT_PROMPT_TEXTS[1].includes('NO printed graphic'), 'Prompt 2 specifies NO printed graphic on the back');
   assert(DEFAULT_PROMPT_TEXTS[1].includes('MID-THIGH') && DEFAULT_PROMPT_TEXTS[1].includes('NO feet'), 'Prompt 2 enforces tight mid-thigh crop with no feet or shoes');
 
-  // Verify Prompt 3: Side Profile (Focused mid-thigh crop)
-  assert(DEFAULT_PROMPT_TEXTS[2].includes('CLEAR SIDE PROFILE') && DEFAULT_PROMPT_TEXTS[2].includes('SIDE VIEW ONLY'), 'Prompt 3 contains CLEAR SIDE PROFILE & 90-degree profile instructions');
+  // Verify Prompt 3: Side View (Model in side profile / drape)
+  assert(DEFAULT_PROMPT_TEXTS[2].includes('SIDE PROFILE VIEW') || DEFAULT_PROMPT_TEXTS[2].includes('SIDE VIEW'), 'Prompt 3 contains SIDE view instructions');
   assert(DEFAULT_PROMPT_TEXTS[2].includes('MID-THIGH') && DEFAULT_PROMPT_TEXTS[2].includes('NO feet'), 'Prompt 3 enforces tight mid-thigh crop with no feet or shoes');
 
-  // Verify Prompt 4: Neckline & Collar Close-Up
-  assert(DEFAULT_PROMPT_TEXTS[3].includes('neckline and collar') && DEFAULT_PROMPT_TEXTS[3].includes('collar shape'), 'Prompt 4 contains neckline and collar close-up macro instructions');
+  // Verify Prompt 4: Neckline, Collar, or Hood Close-Up (adapts to reference garment)
+  assert((DEFAULT_PROMPT_TEXTS[3].includes('collar, neckline, or hood') || DEFAULT_PROMPT_TEXTS[3].includes('neckline and collar')) && (DEFAULT_PROMPT_TEXTS[3].includes('stitching') || DEFAULT_PROMPT_TEXTS[3].includes('seam construction')), 'Prompt 4 contains neckline, collar, or hood close-up macro instructions');
 
   // Verify Prompt 5: Graphic Print Close-Up
   assert(DEFAULT_PROMPT_TEXTS[4].includes('printed graphic/design') && DEFAULT_PROMPT_TEXTS[4].includes('DO NOT redesign'), 'Prompt 5 contains printed graphic/design close-up instructions');
 
   // Verify Prompt 6: Marketplace Product Listing Infographic
-  assert(DEFAULT_PROMPT_TEXTS[5].includes('PRODUCT LISTING INFOGRAPHIC') && DEFAULT_PROMPT_TEXTS[5].includes('Oversized fit'), 'Prompt 6 contains PRODUCT LISTING INFOGRAPHIC instructions');
+  assert(DEFAULT_PROMPT_TEXTS[5].includes('PRODUCT LISTING INFOGRAPHIC') && (DEFAULT_PROMPT_TEXTS[5].includes('Same as Reference') || DEFAULT_PROMPT_TEXTS[5].includes('Oversized Fit')), 'Prompt 6 contains PRODUCT LISTING INFOGRAPHIC instructions');
 
   // Verify initial session creation has all 6 prompts populated by default
   const defaultSession = createInitialSession();
@@ -458,6 +460,239 @@ console.log('\n[Test Suite 7] 6 Default Fashion Prompts & Custom Modification Li
   testSession.prompts[0].text = DEFAULT_PROMPT_TEXTS[0];
   assert(testSession.prompts[0].text === DEFAULT_PROMPT_TEXTS[0], 'Restoring default resets prompt text back to default prompt 1');
 
+  // 8. Test Model Selection, T-Shirt Fits, Zoom Framing, 3 Angles x 10 Presets (30 Poses Total), and Queue Items
+  console.log('\n[Test Suite 8] Model Selection, T-Shirt Fit, Zoom, 30 Poses (3 Angles x 10 Presets) & Multi-Image Queue');
+
+  const {
+    MODEL_GENDERS,
+    TSHIRT_TYPES,
+    ZOOM_TYPES,
+    FRONT_POSES,
+    BACK_POSES,
+    SIDE_POSES,
+    PRESET_POSES,
+    POSE_SETS,
+    calculatePoseIndices,
+    buildPromptsForConfig,
+    createQueueItem,
+    resolveGarmentFit,
+    resolveImageFilename
+  } = await import('../utils/storage.js');
+
+  // 8.1 Model Genders
+  assert(MODEL_GENDERS.female && MODEL_GENDERS.male, 'Both female and male model definitions exist');
+  assert(MODEL_GENDERS.female.description.includes('female'), 'Female model includes female description');
+  assert(MODEL_GENDERS.male.description.includes('male'), 'Male model includes male description');
+
+  // 8.2 T-Shirt Types & "Same as Reference"
+  const expectedFits = ['same', 'oversized', 'normal', 'slim', 'boxy', 'crop', 'polo'];
+  expectedFits.forEach(fit => {
+    assert(TSHIRT_TYPES[fit] !== undefined, `T-shirt fit '${fit}' is defined`);
+  });
+  assert(
+    TSHIRT_TYPES.same.description.includes('reference image') &&
+    TSHIRT_TYPES.same.description.includes('faithfully replicate'),
+    'Fit "same" explicitly commands preserving reference image silhouette, fit, drape, and cut'
+  );
+
+  // 8.3 Zoom Framing Types
+  const expectedZooms = ['medium', 'full_body', 'torso_zoom', 'macro_zoom'];
+  expectedZooms.forEach(z => {
+    assert(ZOOM_TYPES[z] !== undefined, `Framing zoom '${z}' is defined`);
+  });
+  assert(ZOOM_TYPES.medium.description.includes('MID-THIGH'), 'Medium zoom specifies mid-thigh framing');
+  assert(ZOOM_TYPES.full_body.description.toLowerCase().includes('full-body') && ZOOM_TYPES.full_body.description.includes('head to toe'), 'Full body zoom specifies full-body head-to-toe framing');
+
+  // 8.4 3 Angles x 10 Presets = 30 Poses Total
+  assert(Array.isArray(FRONT_POSES) && FRONT_POSES.length === 10, 'FRONT_POSES contains exactly 10 front poses');
+  assert(Array.isArray(BACK_POSES) && BACK_POSES.length === 10, 'BACK_POSES contains exactly 10 back poses');
+  assert(Array.isArray(SIDE_POSES) && SIDE_POSES.length === 10, 'SIDE_POSES contains exactly 10 side poses');
+  assert(Array.isArray(PRESET_POSES) && PRESET_POSES.length === 30, 'Total PRESET_POSES contains exactly 30 poses (3 * 10)');
+  assert(Array.isArray(POSE_SETS) && POSE_SETS.length === 10, 'POSE_SETS contains exactly 10 complementary sets (Front, Back, Side)');
+
+  FRONT_POSES.forEach((p, idx) => {
+    assert(p.direction.includes('FRONT'), `Front pose ${idx + 1} (${p.name}) specifies FRONT view`);
+  });
+  BACK_POSES.forEach((p, idx) => {
+    assert(p.direction.includes('BACK'), `Back pose ${idx + 1} (${p.name}) specifies BACK view`);
+  });
+  SIDE_POSES.forEach((p, idx) => {
+    assert(p.direction.includes('SIDE') || p.direction.includes('THREE-QUARTER'), `Side pose ${idx + 1} (${p.name}) specifies SIDE/3-QUARTER view`);
+  });
+
+  // 8.5 Rotation Math Across Queue Items (Cycles Presets 0..9)
+  const pRun0 = calculatePoseIndices(0, 0);
+  assert(pRun0[0] === 0 && pRun0[1] === 0 && pRun0[2] === 0, `Queue 0 uses Preset 0 (Front 0, Back 0, Side 0): got [${pRun0}]`);
+
+  const pRun1 = calculatePoseIndices(1, 0);
+  assert(pRun1[0] === 1 && pRun1[1] === 1 && pRun1[2] === 1, `Queue 1 uses Preset 1 (Front 1, Back 1, Side 1): got [${pRun1}]`);
+
+  const pRun9 = calculatePoseIndices(9, 0);
+  assert(pRun9[0] === 9 && pRun9[1] === 9 && pRun9[2] === 9, `Queue 9 uses Preset 9 (Front 9, Back 9, Side 9): got [${pRun9}]`);
+
+  const pRun10 = calculatePoseIndices(10, 0);
+  assert(pRun10[0] === 0 && pRun10[1] === 0 && pRun10[2] === 0, `Queue 10 wraps back to Preset 0: got [${pRun10}]`);
+
+  const pWithOffset = calculatePoseIndices(0, 4);
+  assert(pWithOffset[0] === 4 && pWithOffset[1] === 4 && pWithOffset[2] === 4, `Offset 4 shifts starting preset to 4: got [${pWithOffset}]`);
+
+  // 8.6 Prompt Compilation: Angle 1 = Front, Angle 2 = Back, Angle 3 = Side
+  const maleSamePrompts = buildPromptsForConfig({
+    modelGender: 'male',
+    tshirtType: 'same',
+    zoomType: 'full_body',
+    poseIndices: [0, 0, 0]
+  });
+  assert(maleSamePrompts.length === 6, 'buildPromptsForConfig returned 6 prompts');
+  assert(maleSamePrompts[0].text.includes('FRONT VIEW'), 'Prompt 1 is FRONT VIEW');
+  assert(maleSamePrompts[0].text.includes('printed graphic/design clearly visible'), 'Prompt 1 shows model with front print');
+  assert(maleSamePrompts[1].text.includes('BACK VIEW'), 'Prompt 2 is BACK VIEW');
+  assert(maleSamePrompts[1].text.includes('NO printed graphic'), 'Prompt 2 enforces clean back without print');
+  assert(maleSamePrompts[2].text.includes('SIDE VIEW') || maleSamePrompts[2].text.includes('SIDE PROFILE'), 'Prompt 3 is SIDE VIEW');
+
+  // Test Female + Oversized + Medium (Preset 2: Pockets Front, Over-Shoulder Right, 90° Left)
+  const femaleOversizedPrompts = buildPromptsForConfig({
+    modelGender: 'female',
+    tshirtType: 'oversized',
+    zoomType: 'medium',
+    poseIndices: [1, 1, 1]
+  });
+  assert(femaleOversizedPrompts[0].text.includes('adult female'), 'Prompt 1 specifies adult female model');
+  assert(femaleOversizedPrompts[0].text.includes(FRONT_POSES[1].direction), `Prompt 1 uses Front Pose 2 direction (${FRONT_POSES[1].shortName})`);
+  assert(femaleOversizedPrompts[1].text.includes(BACK_POSES[1].direction), `Prompt 2 uses Back Pose 2 direction (${BACK_POSES[1].shortName})`);
+  assert(femaleOversizedPrompts[2].text.includes(SIDE_POSES[1].direction), `Prompt 3 uses Side Pose 2 direction (${SIDE_POSES[1].shortName})`);
+
+  // 8.7 Queue Item Creation with Distinct Angle Combinations
+  const mockFile1 = { name: 'design-alpha.png', type: 'image/png', size: 12345, dataUrl: 'data:image/png;base64,mock1' };
+  const mockFile2 = { name: 'design-beta.png', type: 'image/png', size: 54321, dataUrl: 'data:image/png;base64,mock2' };
+
+  const queueItem1 = createQueueItem(mockFile1, 0, { modelGender: 'female', tshirtType: 'same', zoomType: 'medium', startingPoseOffset: 0 });
+  const queueItem2 = createQueueItem(mockFile2, 1, { modelGender: 'female', tshirtType: 'same', zoomType: 'medium', startingPoseOffset: 0 });
+
+  assert(queueItem1.id && queueItem1.file.name === 'design-alpha.png', 'Queue item 1 initialized with correct filename');
+  assert(queueItem1.poseIndices[0] === 0 && queueItem1.poseIndices[1] === 0 && queueItem1.poseIndices[2] === 0, 'Queue item 1 assigned Preset 0 (Front 0, Back 0, Side 0)');
+  assert(queueItem2.poseIndices[0] === 1 && queueItem2.poseIndices[1] === 1 && queueItem2.poseIndices[2] === 1, 'Queue item 2 assigned Preset 1 (Front 1, Back 1, Side 1)');
+  assert(queueItem1.prompts.length === 6 && queueItem2.prompts.length === 6, 'Both queue items contain 6 compiled prompts');
+  assert(queueItem1.prompts[0].text !== queueItem2.prompts[0].text, 'Queue item 1 and 2 have distinct model poses in prompt 1');
+  assert(queueItem1.prompts[1].text !== queueItem2.prompts[1].text, 'Queue item 1 and 2 have distinct model poses in prompt 2');
+  assert(queueItem1.prompts[2].text !== queueItem2.prompts[2].text, 'Queue item 1 and 2 have distinct model poses in prompt 3');
+
+  // 8.8 Verify resolveGarmentFit for 'same', 'hoodie', custom inputs
+  const sameFit = resolveGarmentFit('same');
+  assert(sameFit.isSame === true, "resolveGarmentFit('same') sets isSame = true");
+  assert(sameFit.apparelName === 'garment', "resolveGarmentFit('same') uses generic apparelName 'garment' so it works for hoodies or anything");
+  assert(sameFit.description.includes('hoodie, pullover, crewneck sweatshirt, oversized T-shirt, jacket'), "resolveGarmentFit('same') explicitly covers hoodies, jackets, sweatshirts, and t-shirts");
+
+  const hoodieFit = resolveGarmentFit('hoodie');
+  assert(hoodieFit.apparelName === 'hoodie', "resolveGarmentFit('hoodie') sets apparelName = 'hoodie'");
+  const hoodiePrompts = buildPromptsForConfig({ tshirtType: 'hoodie' });
+  assert(hoodiePrompts[3].text.includes('hood, drawstrings, eyelets'), "Prompt 4 focuses on hood and drawstrings when hoodie is specified");
+
+  const customJacketFit = resolveGarmentFit('varsity jacket');
+  assert(customJacketFit.apparelName === 'jacket', "resolveGarmentFit('varsity jacket') detects jacket apparel");
+
+  // 8.9 Verify Individual Queue Items can have distinct configs
+  const queueItemFemale = createQueueItem(mockFile1, 0, { modelGender: 'female', tshirtType: 'same', zoomType: 'full_body' });
+  const queueItemMale = createQueueItem(mockFile2, 1, { modelGender: 'male', tshirtType: 'hoodie', zoomType: 'torso_zoom' });
+  assert(queueItemFemale.config.modelGender === 'female' && queueItemMale.config.modelGender === 'male', 'Queue items have distinct individual models');
+  assert(queueItemFemale.config.tshirtType === 'same' && queueItemMale.config.tshirtType === 'hoodie', 'Queue items have distinct individual garment fits');
+  assert(queueItemFemale.config.zoomType === 'full_body' && queueItemMale.config.zoomType === 'torso_zoom', 'Queue items have distinct zoom framings');
+  assert(queueItemFemale.prompts[0].text.includes('adult female'), 'Queue item 1 prompt 1 targets female model');
+  assert(queueItemMale.prompts[0].text.includes('adult male'), 'Queue item 2 prompt 1 targets male model');
+
+  // 9. Test Image Naming (name_x vs image_x_x), Same-Tab In-Place Transition & Final ZIP Packaging
+  console.log('\n[Test Suite 9] Image Naming (name_x vs image_x_x), Same-Tab Transition & Final ZIP');
+
+  // 9.1 When custom name is provided -> name_x
+  const named1 = resolveImageFilename('cool_tee', 1, 1);
+  assert(named1 === 'cool_tee_1.png', `Custom name 'cool_tee' gives name_1: ${named1}`);
+
+  const named2 = resolveImageFilename('cool_tee', 1, 2);
+  assert(named2 === 'cool_tee_2.png', `Custom name 'cool_tee' gives name_2: ${named2}`);
+
+  const named3 = resolveImageFilename('cool_tee', 1, 3);
+  assert(named3 === 'cool_tee_3.png', `Custom name 'cool_tee' gives name_3: ${named3}`);
+
+  const namedUserLiteral = resolveImageFilename('name', 2, 1);
+  assert(namedUserLiteral === 'name_1.png', `Custom name 'name' gives name_1: ${namedUserLiteral}`);
+
+  const namedComplex = resolveImageFilename('Summer Drop 2026!', 3, 2);
+  assert(namedComplex === 'summer_drop_2026_2.png', `Complex custom name slugified properly: ${namedComplex}`);
+
+  // 9.2 When custom name is NOT provided -> image_x_x (first x: designIndex, second x: promptIndex)
+  const unnamed1 = resolveImageFilename('', 1, 1);
+  assert(unnamed1 === 'image_1_1.png', `Empty custom name on design 1 prompt 1 gives image_1_1: ${unnamed1}`);
+
+  const unnamed2 = resolveImageFilename('', 1, 2);
+  assert(unnamed2 === 'image_1_2.png', `Empty custom name on design 1 prompt 2 gives image_1_2: ${unnamed2}`);
+
+  const unnamed3 = resolveImageFilename('', 2, 1);
+  assert(unnamed3 === 'image_2_1.png', `Empty custom name on design 2 prompt 1 gives image_2_1: ${unnamed3}`);
+
+  const unnamed4 = resolveImageFilename('', 2, 3);
+  assert(unnamed4 === 'image_2_3.png', `Empty custom name on design 2 prompt 3 gives image_2_3: ${unnamed4}`);
+
+  const unnamedNull = resolveImageFilename(null, 3, 1);
+  assert(unnamedNull === 'image_3_1.png', `Null custom name gives image_3_1: ${unnamedNull}`);
+
+  const unnamedUndefined = resolveImageFilename(undefined, 4, 2);
+  assert(unnamedUndefined === 'image_4_2.png', `Undefined custom name gives image_4_2: ${unnamedUndefined}`);
+
+  const unnamedWhitespace = resolveImageFilename('   ', 5, 1);
+  assert(unnamedWhitespace === 'image_5_1.png', `Whitespace-only custom name gives image_5_1: ${unnamedWhitespace}`);
+
+  // 9.3 Queue Item customName Retention & Default Blank Behavior
+  const queueWithCustom = createQueueItem(mockFile1, 0, { baseFilename: 'urban_streetwear' });
+  assert(queueWithCustom.customName === 'urban_streetwear', 'Queue item initialized with explicit baseFilename sets customName');
+
+  const queueWithoutCustom = createQueueItem(mockFile2, 1, { baseFilename: '' });
+  assert(queueWithoutCustom.customName === '', 'Queue item initialized with empty baseFilename sets customName = ""');
+
+  const queueWithUndefinedCustom = createQueueItem(mockFile1, 2, {});
+  assert(queueWithUndefinedCustom.customName === '', 'Queue item initialized with no settings sets customName = ""');
+
+  // 9.4 Verification of Single Chat Thread & No Page Reloads / Tab Discarding
+  const chatgptContentScript = fs.readFileSync(path.join(rootDir, 'content/chatgpt.js'), 'utf8');
+  assert(chatgptContentScript.includes('isElementActive'), 'content/chatgpt.js includes isElementActive for background tab / minimized window resilience');
+  assert(chatgptContentScript.includes('baselineTurnCount'), 'content/chatgpt.js tracks baselineTurnCount accurately across multiple turns in one chat');
+
+  const serviceWorkerCode = fs.readFileSync(path.join(rootDir, 'background/service-worker.js'), 'utf8');
+  assert(serviceWorkerCode.includes('Continuing in same continuous chat'), 'background/service-worker.js runs all designs sequentially inside ONE continuous chat');
+  assert(serviceWorkerCode.includes('autoDiscardable: false'), 'background/service-worker.js prevents tab discarding when tab is not on screen');
+  assert(!serviceWorkerCode.includes("chrome.tabs.update(tab.id, { url: 'https://chatgpt.com/' })"), 'service-worker.js does NOT reload or navigate tab between queue items');
+
+  // 9.5 Verification of No Automatic Popout Window on Start
+  const popupJsCode = fs.readFileSync(path.join(rootDir, 'popup/popup.js'), 'utf8');
+  assert(!popupJsCode.includes("chrome.windows.create({ url: chrome.runtime.getURL('popup/popup.html?detached=true')"), 'popup.js does not auto-popout on startAutomation');
+
+  // 9.6 One-Time Single Consolidated ZIP Archive Packaging
+  assert(!serviceWorkerCode.includes('settings.autoZipQueueItems !== false'), 'service-worker.js does not download intermediate ZIPs after each design');
+  assert(serviceWorkerCode.includes('all_generated_images.zip') || serviceWorkerCode.includes('_all_images.zip'), 'service-worker.js downloads all images ONE TIME in a single final consolidated ZIP archive');
+  assert(serviceWorkerCode.includes('resolveImageFilename'), 'service-worker.js uses resolveImageFilename for individual and ZIP file naming');
+
+  // 9.7 Tabbed-Out Duplicate Prevention (No Duplicate Prompts or Image Re-uploads)
+  assert(serviceWorkerCode.includes('promptSubmitted'), 'service-worker.js uses promptSubmitted flag to prevent sending the same prompt multiple times on retries');
+  assert(chatgptContentScript.includes('skipping redundant upload'), 'content/chatgpt.js detects existing composer attachments to prevent duplicate reference image uploads');
+  assert(!chatgptContentScript.includes('assistantMsgs[assistantMsgs.length - 1]'), 'content/chatgpt.js never falls back to previous assistant turns for image detection');
+
+  // 9.8 First-time Reference Upload & Single-Prompt Dispatch Precision
+  assert(chatgptContentScript.includes('isAttachButton'), 'content/chatgpt.js explicitly excludes attach buttons from being mistaken for uploaded thumbnails');
+  assert(!chatgptContentScript.includes("sendBtn.dispatchEvent(new MouseEvent('click'"), 'content/chatgpt.js does not dispatch duplicate click before sendBtn.click()');
+  assert(chatgptContentScript.includes('_isSubmittingPrompt'), 'content/chatgpt.js has re-entrancy protection against sending prompt twice');
+  assert(chatgptContentScript.includes('dismissStuckOverlays'), 'content/chatgpt.js includes dismissStuckOverlays to prevent stuck modal backdrops');
+  assert(!chatgptContentScript.includes("new DragEvent('dragenter'"), 'content/chatgpt.js does not trigger ChatGPT full-screen drag overlays');
+  assert(!chatgptContentScript.includes("composer.getAttribute('aria-disabled') !== 'true'"), 'content/chatgpt.js waitForIdle does not block on background aria-disabled state');
+  assert(!chatgptContentScript.includes("form.dispatchEvent(new Event('submit'"), 'content/chatgpt.js does not dispatch duplicate form submit events');
+  assert(chatgptContentScript.includes('insertAndSubmitPrompt'), 'content/chatgpt.js uses atomic insertAndSubmitPrompt for background prompt delivery');
+
+  const mainScript = fs.readFileSync(path.join(rootDir, 'content/chatgpt-main.js'), 'utf8');
+  assert(mainScript.includes('__lexicalEditor'), 'content/chatgpt-main.js accesses __lexicalEditor directly in MAIN world');
+  assert(mainScript.includes('setEditorState'), 'content/chatgpt-main.js updates Lexical editor state directly for instant prompt readiness');
+
+  const manifestJson = JSON.parse(fs.readFileSync(path.join(rootDir, 'manifest.json'), 'utf8'));
+  const hasMainWorld = manifestJson.content_scripts.some(cs => cs.world === 'MAIN' && cs.js.includes('content/chatgpt-main.js'));
+  assert(hasMainWorld, 'manifest.json configures content/chatgpt-main.js in MAIN world');
+
   // Summary
   console.log('\n========================================');
   console.log(`RESULTS: ${passedTests} PASSED, ${failedTests} FAILED`);
@@ -467,4 +702,5 @@ console.log('\n[Test Suite 7] 6 Default Fashion Prompts & Custom Modification Li
     process.exit(1);
   }
 })();
+
 

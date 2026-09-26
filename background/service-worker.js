@@ -1,7 +1,7 @@
 // background/service-worker.js
 // Production Background Service Worker & Automation State Machine for PromptFlow
 
-import storage, { AUTOMATION_STATE, PROMPT_STATUS, createInitialSession } from '../utils/storage.js';
+import storage, { AUTOMATION_STATE, PROMPT_STATUS, createInitialSession, createQueueItem, resolveImageFilename } from '../utils/storage.js';
 import { Downloader } from '../utils/downloader.js';
 import logger from '../utils/logger.js';
 
@@ -70,19 +70,34 @@ class AutomationEngine {
    * Finds an existing ChatGPT tab or opens a new one
    */
   async getOrOpenChatGPTTab() {
-    logger.info('Searching for open ChatGPT tabs...');
+    logger.info('Searching for active ChatGPT tab...');
+
+    // 1. If currently on a ChatGPT tab in the active window, stay on it without changing tabs
+    try {
+      const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (currentTab && currentTab.url && (currentTab.url.includes('chatgpt.com') || currentTab.url.includes('chat.openai.com'))) {
+        this.activeTabId = currentTab.id;
+        logger.success(`Operating in current active ChatGPT tab (ID: ${this.activeTabId}) without changing tabs`);
+        return currentTab;
+      }
+    } catch (e) {}
+
     const tabs = await chrome.tabs.query({
       url: ['https://chatgpt.com/*', 'https://chat.openai.com/*']
     });
 
     if (tabs.length > 0) {
-      const activeTab = tabs[0];
+      // Prefer active tab in current or any window
+      const activeTab = tabs.find((t) => t.active) || tabs[0];
       await chrome.tabs.update(activeTab.id, { active: true });
       if (activeTab.windowId) {
         await chrome.windows.update(activeTab.windowId, { focused: true });
       }
       this.activeTabId = activeTab.id;
-      logger.success(`Found existing ChatGPT tab (ID: ${this.activeTabId})`);
+      try {
+        await chrome.tabs.update(this.activeTabId, { autoDiscardable: false });
+      } catch (e) {}
+      logger.success(`Using existing ChatGPT tab (ID: ${this.activeTabId})`);
       return activeTab;
     }
 
@@ -161,14 +176,14 @@ class AutomationEngine {
     const settings = await storage.getSettings();
 
     try {
-      // 1. Validate inputs
-      if (!session.referenceImage) {
-        throw new Error('Please upload a reference image before starting.');
+      // 1. Validate inputs & initialize queue
+      if ((!session.queue || session.queue.length === 0) && !session.referenceImage) {
+        throw new Error('Please upload at least one reference image before starting.');
       }
 
-      const enabledPrompts = session.prompts.filter((p) => p.enabled && p.text.trim().length > 0);
-      if (enabledPrompts.length === 0) {
-        throw new Error('Please provide at least one prompt with text.');
+      if (!Array.isArray(session.queue) || session.queue.length === 0) {
+        session.queue = [createQueueItem(session.referenceImage, 0, settings)];
+        session.prompts = session.queue[0].prompts;
       }
 
       session.startedAt = Date.now();
@@ -176,7 +191,7 @@ class AutomationEngine {
       session.error = null;
       await storage.saveSession(session);
 
-      await this.setState(AUTOMATION_STATE.PREPARING, 'Preparing session...', {}, currentRunId);
+      await this.setState(AUTOMATION_STATE.PREPARING, 'Preparing session & queue...', {}, currentRunId);
 
       // 2. Open / Activate ChatGPT tab
       await this.setState(AUTOMATION_STATE.OPENING_CHATGPT, 'Locating or opening ChatGPT tab...', {}, currentRunId);
@@ -194,193 +209,299 @@ class AutomationEngine {
 
       logger.success('ChatGPT authentication & composer confirmed ready');
 
-      // 4. Execute prompt sequence
-      for (let i = 0; i < session.prompts.length; i++) {
-        // Refresh session data
+      // 4. Process each item in the Queue
+      for (let qIdx = 0; qIdx < session.queue.length; qIdx++) {
         session = await storage.getSession();
+        if (this.executionId !== currentRunId || this.stopRequested) break;
 
-        if (this.executionId !== currentRunId || this.stopRequested) {
-          if (this.executionId === currentRunId) {
-            await this.setState(AUTOMATION_STATE.STOPPED, `Automation stopped. Completed: ${this.getCompletedCount(session)} / ${enabledPrompts.length}`, {}, currentRunId);
-          }
-          break;
-        }
-
-        while (this.isPaused) {
-          await this.setState(AUTOMATION_STATE.PAUSED, 'Automation paused by user.', {}, currentRunId);
-          await new Promise((r) => setTimeout(r, 1000));
-          if (this.stopRequested || this.executionId !== currentRunId) break;
-        }
-        if (this.stopRequested || this.executionId !== currentRunId) break;
-
-        const prompt = session.prompts[i];
-
-        // Skip disabled or empty prompts
-        if (!prompt.enabled || !prompt.text.trim()) {
-          if (prompt.status !== PROMPT_STATUS.COMPLETED) {
-            await this.updatePrompt(i, { status: PROMPT_STATUS.SKIPPED }, currentRunId);
-          }
+        const queueItem = session.queue[qIdx];
+        if (queueItem.status === 'completed') {
+          logger.info(`Queue item ${qIdx + 1} (${queueItem.name}) already completed. Skipping.`);
           continue;
         }
 
-        // If prompt was already completed in a resumed session, skip to next
-        if (prompt.status === PROMPT_STATUS.COMPLETED) {
-          logger.info(`Prompt ${i + 1} already completed. Skipping.`);
-          continue;
-        }
-
-        session.currentPromptIndex = i;
+        session.currentQueueIndex = qIdx;
+        session.referenceImage = queueItem.referenceImage;
+        session.referenceUploaded = false; // Fresh upload required for each queue item!
+        session.baseFilename = queueItem.baseFilename || `design_${qIdx + 1}`;
+        session.prompts = queueItem.prompts || session.prompts;
+        queueItem.status = 'in_progress';
         await storage.saveSession(session);
+        await this.broadcastState(session);
 
-        logger.info(`=== Starting Prompt ${i + 1} / ${session.prompts.length} ===`);
+        logger.info(`=== STARTING QUEUE ITEM ${qIdx + 1} / ${session.queue.length}: ${queueItem.name} ===`);
 
-        let promptSuccess = false;
-        let attempt = 0;
-        const maxPromptRetries = 1; // 1 attempt per prompt prevents long waiting loops
+        // All queue items execute sequentially inside ONE continuous chat!
+        if (qIdx > 0) {
+          logger.info(`Continuing in same continuous chat for Design ${qIdx + 1} of ${session.queue.length}`);
+          await new Promise((r) => setTimeout(r, 1200));
+        }
 
-        while (!promptSuccess && attempt < maxPromptRetries) {
-          attempt++;
-          if (this.executionId !== currentRunId || this.stopRequested) break;
+        const enabledPrompts = session.prompts.filter((p) => p.enabled && p.text.trim().length > 0);
 
-          try {
-            // STEP A: Upload Reference Image (ONLY ONCE for the chat session!)
-            if (!session.referenceUploaded) {
+        // Execute prompt sequence for this queue item
+        for (let i = 0; i < session.prompts.length; i++) {
+          session = await storage.getSession();
+
+          if (this.executionId !== currentRunId || this.stopRequested) {
+            if (this.executionId === currentRunId) {
+              await this.setState(AUTOMATION_STATE.STOPPED, `Automation stopped. Completed: ${this.getCompletedCount(session)} / ${enabledPrompts.length}`, {}, currentRunId);
+            }
+            break;
+          }
+
+          while (this.isPaused) {
+            await this.setState(AUTOMATION_STATE.PAUSED, 'Automation paused by user.', {}, currentRunId);
+            await new Promise((r) => setTimeout(r, 1000));
+            if (this.stopRequested || this.executionId !== currentRunId) break;
+          }
+          if (this.stopRequested || this.executionId !== currentRunId) break;
+
+          const prompt = session.prompts[i];
+          if (!prompt.enabled || !prompt.text.trim()) {
+            if (prompt.status !== PROMPT_STATUS.COMPLETED) {
+              await this.updatePrompt(i, { status: PROMPT_STATUS.SKIPPED }, currentRunId);
+            }
+            continue;
+          }
+
+          if (prompt.status === PROMPT_STATUS.COMPLETED) {
+            continue;
+          }
+
+          session.currentPromptIndex = i;
+          await storage.saveSession(session);
+
+          logger.info(`Design ${qIdx + 1}/${session.queue.length} -> Prompt ${i + 1}/${session.prompts.length}: ${prompt.title}`);
+
+          let promptSubmitted = false;
+          let promptSuccess = false;
+          let attempt = 0;
+          const maxPromptRetries = 3; // Up to 3 resilient attempts so middle prompts are never skipped
+
+          while (!promptSuccess && attempt < maxPromptRetries) {
+            attempt++;
+            if (this.executionId !== currentRunId || this.stopRequested) break;
+
+            try {
+              // Upload Reference Image (only once for this queue item's chat!)
+              if (!session.referenceUploaded) {
+                await this.setState(
+                  AUTOMATION_STATE.UPLOADING_REFERENCE,
+                  `Uploading reference for Design ${qIdx + 1} (${queueItem.name})...`,
+                  {},
+                  currentRunId
+                );
+                await this.updatePrompt(i, {
+                  status: PROMPT_STATUS.UPLOADING,
+                  startedAt: Date.now(),
+                  error: null
+                }, currentRunId);
+
+                const uploadRes = await chrome.tabs.sendMessage(tab.id, {
+                  type: 'PREPARE_REFERENCE_UPLOAD',
+                  fileData: queueItem.referenceImage
+                });
+
+                if (!uploadRes || !uploadRes.success) {
+                  throw new Error(uploadRes?.error || 'Failed to attach reference image to ChatGPT composer');
+                }
+
+                session.referenceUploaded = true;
+                await storage.saveSession(session);
+                logger.success(`Reference image uploaded for Design ${qIdx + 1}`);
+                await new Promise((r) => setTimeout(r, 1500));
+              }
+
+              if (this.executionId !== currentRunId || this.stopRequested) break;
+
+              // Send Prompt ONLY if not yet dispatched to ChatGPT!
+              if (!promptSubmitted) {
+                // Pre-prompt Image Snapshot
+                logger.info(`Taking pre-prompt DOM snapshot for Prompt ${i + 1}...`);
+                await chrome.tabs.sendMessage(tab.id, { type: 'TAKE_IMAGE_SNAPSHOT' });
+
+                await this.setState(
+                  AUTOMATION_STATE.SENDING_PROMPT,
+                  `[Design ${qIdx + 1}/${session.queue.length}] Sending Prompt ${i + 1}: ${prompt.title}...`,
+                  {},
+                  currentRunId
+                );
+                const submitRes = await chrome.tabs.sendMessage(tab.id, {
+                  type: 'SUBMIT_PROMPT',
+                  promptIndex: i + 1,
+                  promptText: prompt.text
+                });
+
+                if (!submitRes || !submitRes.success) {
+                  throw new Error(submitRes?.error || 'Failed to submit prompt text');
+                }
+
+                promptSubmitted = true;
+                logger.info(`Prompt ${i + 1} dispatched successfully to ChatGPT.`);
+              }
+
+              if (this.executionId !== currentRunId || this.stopRequested) break;
+
+              // Fast Wait and Detect Generated Image directly
               await this.setState(
-                AUTOMATION_STATE.UPLOADING_REFERENCE,
-                `Uploading reference image for the chat...`,
+                AUTOMATION_STATE.WAITING_FOR_GENERATION,
+                `[Design ${qIdx + 1}/${session.queue.length}] Generating image for Prompt ${i + 1}...`,
                 {},
                 currentRunId
               );
+              await this.updatePrompt(i, { status: PROMPT_STATUS.GENERATING }, currentRunId);
+
+              const genRes = await chrome.tabs.sendMessage(tab.id, {
+                type: 'WAIT_AND_DETECT_IMAGE',
+                promptIndex: i + 1,
+                timeoutMinutes: Math.min(settings.generationTimeoutMinutes || 5, 8)
+              });
+
+              if (this.executionId !== currentRunId || this.stopRequested) break;
+
+              if (!genRes || !genRes.success || !genRes.imageUrl) {
+                throw new Error(genRes?.error || 'Image generation failed or timed out');
+              }
+
+              const generatedUrl = genRes.imageUrl;
+              logger.success(`Image detected for Prompt ${i + 1}: ${generatedUrl.slice(0, 60)}...`);
+
+              // Mark prompt complete and store image URL
               await this.updatePrompt(i, {
-                status: PROMPT_STATUS.UPLOADING,
-                startedAt: Date.now(),
+                status: PROMPT_STATUS.COMPLETED,
+                imageUrl: generatedUrl,
+                completedAt: Date.now(),
                 error: null
               }, currentRunId);
 
-              const uploadRes = await chrome.tabs.sendMessage(tab.id, {
-                type: 'PREPARE_REFERENCE_UPLOAD',
-                fileData: session.referenceImage
-              });
+              promptSuccess = true;
+              logger.success(`Prompt ${i + 1} generated successfully!`);
 
-              if (!uploadRes || !uploadRes.success) {
-                throw new Error(uploadRes?.error || 'Failed to attach reference image to ChatGPT composer');
+            } catch (promptErr) {
+              if (this.executionId !== currentRunId || this.stopRequested) break;
+              logger.error(`Prompt ${i + 1} attempt ${attempt} error: ${promptErr.message}`);
+              if (attempt >= maxPromptRetries) {
+                await this.updatePrompt(i, {
+                  status: PROMPT_STATUS.FAILED,
+                  error: promptErr.message
+                }, currentRunId);
+                logger.error(`Prompt ${i + 1} marked as failed.`);
+              } else {
+                await new Promise((r) => setTimeout(r, 2000));
               }
-
-              session.referenceUploaded = true;
-              await storage.saveSession(session);
-              logger.success('Reference image uploaded once for chat session');
-
-              // Small delay to ensure attachment thumbnail settled
-              await new Promise((r) => setTimeout(r, 1500));
-            } else {
-              logger.info(`Reference image already uploaded for this chat. Proceeding directly with Prompt ${i + 1}.`);
             }
+          }
 
-            if (this.executionId !== currentRunId || this.stopRequested) break;
-
-            // STEP B: Pre-prompt Image Snapshot & Baseline Turn Tracking
-            logger.info(`Taking pre-prompt DOM snapshot for Prompt ${i + 1}...`);
-            await chrome.tabs.sendMessage(tab.id, { type: 'TAKE_IMAGE_SNAPSHOT' });
-
-            // STEP C: Send Prompt
+          // Delay before next prompt: allow ChatGPT to fully clear image generation state
+          if (i < session.prompts.length - 1 && !this.stopRequested && this.executionId === currentRunId) {
+            const delaySec = Math.max(settings.delayBetweenPromptsSeconds || 4, 3);
             await this.setState(
-              AUTOMATION_STATE.SENDING_PROMPT,
-              `Sending Prompt ${i + 1}...`,
+              AUTOMATION_STATE.NEXT_PROMPT,
+              `Waiting ${delaySec}s before next prompt...`,
               {},
               currentRunId
             );
-            const submitRes = await chrome.tabs.sendMessage(tab.id, {
-              type: 'SUBMIT_PROMPT',
-              promptIndex: i + 1,
-              promptText: prompt.text
-            });
+            await new Promise((r) => setTimeout(r, delaySec * 1000));
+          }
+        }
 
-            if (!submitRes || !submitRes.success) {
-              throw new Error(submitRes?.error || 'Failed to submit prompt text');
-            }
+        if (this.executionId !== currentRunId || this.stopRequested) break;
 
-            if (this.executionId !== currentRunId || this.stopRequested) break;
+        // Finalize this queue item
+        session = await storage.getSession();
+        queueItem.status = 'completed';
+        queueItem.prompts = session.prompts;
+        const itemCompleted = session.prompts.filter(p => p.status === PROMPT_STATUS.COMPLETED && p.imageUrl);
+        queueItem.completedCount = itemCompleted.length;
 
-            // STEP D: Fast Wait and Detect Generated Image directly
-            await this.setState(
-              AUTOMATION_STATE.WAITING_FOR_GENERATION,
-              `Generating image for Prompt ${i + 1}...`,
-              {},
-              currentRunId
-            );
-            await this.updatePrompt(i, { status: PROMPT_STATUS.GENERATING }, currentRunId);
 
-            const genRes = await chrome.tabs.sendMessage(tab.id, {
-              type: 'WAIT_AND_DETECT_IMAGE',
-              promptIndex: i + 1,
-              timeoutMinutes: Math.min(settings.generationTimeoutMinutes || 3, 3)
-            });
 
-            if (this.executionId !== currentRunId || this.stopRequested) break;
+        session.queue[qIdx] = queueItem;
+        await storage.saveSession(session);
+        await this.broadcastState(session);
+      }
 
-            if (!genRes || !genRes.success || !genRes.imageUrl) {
-              throw new Error(genRes?.error || 'Image generation failed or timed out');
-            }
+      // 5. Finalize Session & Auto-Download All Images from All Designs in a Single Final ZIP
+      if (!this.stopRequested && this.executionId === currentRunId) {
+        session = await storage.getSession();
+        const totalCompletedQueue = (session.queue || []).filter(q => q.status === 'completed').length;
+        const totalQueue = session.queue.length;
 
-            const generatedUrl = genRes.imageUrl;
-            logger.success(`Image detected for Prompt ${i + 1}: ${generatedUrl.slice(0, 60)}...`);
+        // Collect all completed images from all queue items
+        const allCompletedImages = [];
+        for (let q = 0; q < session.queue.length; q++) {
+          const qItem = session.queue[q];
+          const designIndex = q + 1;
+          const customName = qItem.customName || '';
+          const completedPrompts = (qItem.prompts || []).filter(
+            (p) => p.status === PROMPT_STATUS.COMPLETED && p.imageUrl
+          );
 
-            // Mark prompt complete and store image URL
-            await this.updatePrompt(i, {
-              status: PROMPT_STATUS.COMPLETED,
-              imageUrl: generatedUrl,
-              completedAt: Date.now(),
-              error: null
-            }, currentRunId);
+          for (let p = 0; p < completedPrompts.length; p++) {
+            const promptItem = completedPrompts[p];
+            const promptIndex = promptItem.id || (p + 1);
+            // Option to name images: name_x if provided, or image_x_x if not provided
+            const filename = resolveImageFilename(customName, designIndex, promptIndex, 'png');
 
-            promptSuccess = true;
-            logger.success(`Prompt ${i + 1} generated successfully!`);
-
-          } catch (promptErr) {
-            if (this.executionId !== currentRunId || this.stopRequested) break;
-            logger.error(`Prompt ${i + 1} attempt ${attempt} error: ${promptErr.message}`);
-            if (attempt >= maxPromptRetries) {
-              await this.updatePrompt(i, {
-                status: PROMPT_STATUS.FAILED,
-                error: promptErr.message
-              }, currentRunId);
-              logger.error(`Prompt ${i + 1} marked as failed.`);
-            } else {
-              await new Promise((r) => setTimeout(r, 2000));
+            try {
+              const bytes = await Downloader.fetchImageBytes(promptItem.imageUrl, tab.id);
+              allCompletedImages.push({ name: filename, data: bytes });
+            } catch (bErr) {
+              logger.error(`Could not fetch bytes for ${filename}: ${bErr.message}`);
             }
           }
         }
 
-        // STEP E: Delay before next prompt
-        if (i < session.prompts.length - 1 && !this.stopRequested && this.executionId === currentRunId) {
-          await this.setState(
-            AUTOMATION_STATE.NEXT_PROMPT,
-            `Waiting ${settings.delayBetweenPromptsSeconds}s before next prompt...`,
-            {},
-            currentRunId
+        // If queue was empty but single design was run directly via session.prompts
+        if (session.queue.length === 0 && session.prompts) {
+          const customName = (session.baseFilename || '').trim();
+          const completedPrompts = (session.prompts || []).filter(
+            (p) => p.status === PROMPT_STATUS.COMPLETED && p.imageUrl
           );
-          await new Promise((r) => setTimeout(r, (settings.delayBetweenPromptsSeconds || 2) * 1000));
+          for (let p = 0; p < completedPrompts.length; p++) {
+            const promptItem = completedPrompts[p];
+            const promptIndex = promptItem.id || (p + 1);
+            const filename = resolveImageFilename(customName, 1, promptIndex, 'png');
+            try {
+              const bytes = await Downloader.fetchImageBytes(promptItem.imageUrl, tab.id);
+              allCompletedImages.push({ name: filename, data: bytes });
+            } catch (bErr) {
+              logger.error(`Could not fetch bytes for ${filename}: ${bErr.message}`);
+            }
+          }
         }
-      }
 
-      // 5. Finalize Session
-      if (!this.stopRequested && this.executionId === currentRunId) {
-        session = await storage.getSession();
-        const completedCount = this.getCompletedCount(session);
-        const totalEnabled = session.prompts.filter((p) => p.enabled && p.text.trim().length > 0).length;
+        // Automatically download every image ONE TIME in a single consolidated ZIP
+        if (allCompletedImages.length > 0) {
+          try {
+            await this.setState(
+              AUTOMATION_STATE.DOWNLOADING_IMAGE,
+              `Packaging all ${allCompletedImages.length} images into 1 single final ZIP archive...`,
+              {},
+              currentRunId
+            );
+            const baseFolder = (settings.downloadFolder || 'PromptFlow').trim().replace(/^[/\\]+|[/\\]+$/g, '');
+            const globalBase = (session.baseFilename || '').trim();
+            const zipName = globalBase
+              ? `${Downloader.slugify(globalBase, 30)}_all_images.zip`
+              : 'all_generated_images.zip';
+            const finalZipPath = `${baseFolder}/${zipName}`;
+
+            await Downloader.downloadZip(allCompletedImages, finalZipPath);
+            session.finalZipPath = finalZipPath;
+            logger.success(`Downloaded all ${allCompletedImages.length} images ONE TIME in single ZIP: ${finalZipPath}`);
+          } catch (zipErr) {
+            logger.error(`Final combined ZIP creation error: ${zipErr.message}`);
+          }
+        }
 
         session.completedAt = Date.now();
-        session.stats = {
-          total: totalEnabled,
-          completed: completedCount,
-          failed: totalEnabled - completedCount,
-          skipped: session.prompts.filter((p) => p.status === PROMPT_STATUS.SKIPPED).length
-        };
-
         await storage.saveSession(session);
+
         await this.setState(
           AUTOMATION_STATE.COMPLETED,
-          `Automation Complete! ${completedCount} / ${totalEnabled} images ready.`,
+          `Queue Complete! Downloaded ZIP with all ${allCompletedImages.length} images across ${totalCompletedQueue} / ${totalQueue} designs.`,
           {},
           currentRunId
         );
@@ -390,7 +511,7 @@ class AutomationEngine {
           await chrome.tabs.sendMessage(tab.id, {
             type: 'UPDATE_BADGE',
             title: 'PromptFlow',
-            status: `Completed (${completedCount}/${totalEnabled})`,
+            status: `Done (${totalCompletedQueue}/${totalQueue} designs)`,
             state: 'completed'
           });
         } catch (e) {}
@@ -401,8 +522,8 @@ class AutomationEngine {
           await storage.addHistoryEntry({
             sessionId: session.sessionId,
             date: new Date().toISOString(),
-            totalPrompts: totalEnabled,
-            completedPrompts: completedCount,
+            totalDesigns: totalQueue,
+            completedDesigns: totalCompletedQueue,
             status: 'completed',
             durationSeconds
           });
@@ -609,6 +730,109 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             paths: downloadedPaths
           });
         }
+        break;
+      }
+
+      case 'DOWNLOAD_QUEUE_ITEM_ZIP': {
+        const session = await storage.getSession();
+        const settings = await storage.getSettings();
+        const queueItem = (session.queue || []).find((q) => q.id === message.queueId);
+
+        if (!queueItem) {
+          sendResponse({ success: false, message: 'Queue item not found' });
+          break;
+        }
+
+        const completedPrompts = (queueItem.prompts || []).filter(
+          (p) => p.status === PROMPT_STATUS.COMPLETED && p.imageUrl
+        );
+
+        if (completedPrompts.length === 0) {
+          sendResponse({ success: false, message: 'No completed images for this design' });
+          break;
+        }
+
+        const cleanBase = Downloader.slugify(queueItem.baseFilename || 'design', 30) || 'design';
+        const baseFolder = (settings.downloadFolder || 'PromptFlow').trim().replace(/^[/\\]+|[/\\]+$/g, '');
+        const zipPath = `${baseFolder}/${cleanBase}_images.zip`;
+        const files = [];
+
+        for (let idx = 0; idx < completedPrompts.length; idx++) {
+          const p = completedPrompts[idx];
+          const fileName = `${cleanBase}_${idx + 1}.png`;
+          try {
+            const bytes = await Downloader.fetchImageBytes(p.imageUrl, engine.activeTabId);
+            files.push({ name: fileName, data: bytes });
+          } catch (err) {
+            logger.error(`Error fetching image for ${fileName}: ${err.message}`);
+          }
+        }
+
+        if (files.length === 0) {
+          sendResponse({ success: false, message: 'Failed to buffer image bytes for ZIP' });
+          break;
+        }
+
+        try {
+          await Downloader.downloadZip(files, zipPath);
+          queueItem.zipPath = zipPath;
+          await storage.saveSession(session);
+          sendResponse({ success: true, count: files.length, path: zipPath });
+        } catch (err) {
+          sendResponse({ success: false, message: err.message });
+        }
+        break;
+      }
+
+      case 'DOWNLOAD_ALL_QUEUE_ZIPS': {
+        const session = await storage.getSession();
+        const settings = await storage.getSettings();
+        const completedItems = (session.queue || []).filter(
+          (q) => (q.prompts || []).some((p) => p.status === PROMPT_STATUS.COMPLETED && p.imageUrl)
+        );
+
+        if (completedItems.length === 0) {
+          sendResponse({ success: false, message: 'No completed designs ready in queue' });
+          break;
+        }
+
+        let downloadedCount = 0;
+        const baseFolder = (settings.downloadFolder || 'PromptFlow').trim().replace(/^[/\\]+|[/\\]+$/g, '');
+
+        for (const queueItem of completedItems) {
+          const completedPrompts = queueItem.prompts.filter(
+            (p) => p.status === PROMPT_STATUS.COMPLETED && p.imageUrl
+          );
+          if (completedPrompts.length === 0) continue;
+
+          const cleanBase = Downloader.slugify(queueItem.baseFilename || 'design', 30) || 'design';
+          const zipPath = `${baseFolder}/${cleanBase}_images.zip`;
+          const files = [];
+
+          for (let idx = 0; idx < completedPrompts.length; idx++) {
+            const p = completedPrompts[idx];
+            const fileName = `${cleanBase}_${idx + 1}.png`;
+            try {
+              const bytes = await Downloader.fetchImageBytes(p.imageUrl, engine.activeTabId);
+              files.push({ name: fileName, data: bytes });
+            } catch (err) {}
+          }
+
+          if (files.length > 0) {
+            try {
+              await Downloader.downloadZip(files, zipPath);
+              queueItem.zipPath = zipPath;
+              downloadedCount++;
+              await new Promise((r) => setTimeout(r, 1200));
+            } catch (err) {
+              logger.error(`Error downloading ZIP for ${queueItem.name}: ${err.message}`);
+            }
+          }
+        }
+
+        await storage.saveSession(session);
+        await engine.broadcastState(session);
+        sendResponse({ success: true, count: downloadedCount, total: completedItems.length });
         break;
       }
 

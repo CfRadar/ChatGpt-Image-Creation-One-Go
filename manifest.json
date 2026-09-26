@@ -26,7 +26,8 @@
   "permissions": [
     "storage",
     "downloads",
-    "tabs"
+    "tabs",
+    "scripting"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
@@ -42,12 +43,34 @@
         "https://chat.openai.com/*"
       ],
       "js": [
+        "content/chatgpt-main.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
+      "js": [
         "content/chatgpt.js"
       ],
       "css": [
         "content/chatgpt.css"
       ],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "content/chatgpt-main.js"
+      ],
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ]
     }
   ]
 }

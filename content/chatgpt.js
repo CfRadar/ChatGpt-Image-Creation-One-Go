@@ -12,6 +12,16 @@
 
   console.log('[PromptFlow] Content script initialized on:', window.location.href);
 
+  // Ensure Main World Lexical Bridge is attached
+  try {
+    if (!document.getElementById('promptflow-main-bridge')) {
+      const s = document.createElement('script');
+      s.id = 'promptflow-main-bridge';
+      s.src = chrome.runtime.getURL('content/chatgpt-main.js');
+      (document.head || document.documentElement).appendChild(s);
+    }
+  } catch (e) {}
+
   // Helper delay
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -41,6 +51,21 @@
     }
 
     /**
+     * Checks if an element is present and active in the layout tree.
+     * Works reliably even when the tab is in the background or minimized.
+     */
+    isElementActive(el) {
+      if (!el || !el.isConnected) return false;
+      try {
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden') return false;
+        return true;
+      } catch (e) {
+        return el.offsetParent !== null || el.isConnected;
+      }
+    }
+
+    /**
      * Multi-strategy composer detection.
      * ChatGPT frequently updates between textarea, contenteditable div, and role="textbox".
      */
@@ -60,7 +85,7 @@
       for (const strategy of strategies) {
         try {
           const el = strategy();
-          if (el && el.offsetParent !== null) { // visible
+          if (this.isElementActive(el)) {
             this.lastKnownComposer = el;
             return el;
           }
@@ -103,7 +128,7 @@
           for (const b of buttons) {
             const svg = b.querySelector('svg');
             const aria = b.getAttribute('aria-label') || '';
-            if (aria.toLowerCase().includes('send') || (svg && b.offsetParent !== null && !b.disabled)) {
+            if (aria.toLowerCase().includes('send') || (svg && this.isElementActive(b) && !b.disabled)) {
               return b;
             }
           }
@@ -114,7 +139,7 @@
       for (const strategy of strategies) {
         try {
           const btn = strategy();
-          if (btn) return btn;
+          if (btn && this.isElementActive(btn)) return btn;
         } catch (e) {}
       }
       return null;
@@ -136,7 +161,7 @@
       for (const strategy of strategies) {
         try {
           const btn = strategy();
-          if (btn && btn.offsetParent !== null) return btn;
+          if (btn && this.isElementActive(btn)) return btn;
         } catch (e) {}
       }
       return null;
@@ -185,7 +210,7 @@
       for (const strat of buttonStrategies) {
         try {
           const b = strat();
-          if (b && b.offsetParent !== null) {
+          if (b && this.isElementActive(b)) {
             attachButton = b;
             break;
           }
@@ -211,10 +236,56 @@
     }
 
     /**
-     * Uploads the reference image via synthetic file input change or drag-and-drop.
+     * Dismisses any modal backdrop or stuck drag-and-drop overlays in ChatGPT.
+     */
+    dismissStuckOverlays() {
+      try {
+        // 1. Dispatch dragleave to clear ChatGPT's isDragging state
+        const dragLeaveEvt = new DragEvent('dragleave', { bubbles: true, cancelable: true });
+        window.dispatchEvent(dragLeaveEvt);
+        document.dispatchEvent(dragLeaveEvt);
+        document.body.dispatchEvent(dragLeaveEvt);
+
+        // 2. Dispatch Escape to close any modal dialog or drop backdrop
+        const escDown = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true });
+        const escUp = new KeyboardEvent('keyup', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true });
+        window.dispatchEvent(escDown);
+        window.dispatchEvent(escUp);
+
+        // 3. Remove any stuck full-screen drop overlay element if rendered in DOM
+        const stuckDropOverlays = document.querySelectorAll(
+          '[data-testid*="drop" i], [class*="dropzone" i], [class*="overlay" i][class*="drag" i]'
+        );
+        stuckDropOverlays.forEach((el) => {
+          if (el.textContent?.includes('Drop any file') || el.textContent?.includes('Add anything')) {
+            el.remove();
+          }
+        });
+      } catch (e) {
+        console.warn('[PromptFlow] Error dismissing stuck overlays:', e);
+      }
+    }
+
+    /**
+     * Uploads the reference image via synthetic file input change.
      */
     async uploadReference(fileData) {
       console.log('[PromptFlow] Uploading reference image:', fileData.name);
+      this.dismissStuckOverlays();
+
+      // Check if reference image is already genuinely attached in composer thumbnail (strictly NOT the attach button)
+      const container = this.findComposerContainer() || document;
+      const existingAttachment = container.querySelector(
+        '[data-testid="attachment-thumbnail"], [data-testid*="thumbnail" i], button[aria-label*="Remove" i], button[data-testid*="remove" i], img[src^="blob:"]'
+      );
+      if (existingAttachment && this.isElementActive(existingAttachment)) {
+        const isAttachButton = existingAttachment.matches('button[data-testid*="attach" i], button[aria-label*="Attach" i], button[data-testid*="fruitjuice" i]') ||
+                               existingAttachment.closest('button[data-testid*="attach" i], button[aria-label*="Attach" i], button[data-testid*="fruitjuice" i]');
+        if (!isAttachButton) {
+          console.log('[PromptFlow] Reference image already attached in composer, skipping redundant upload.');
+          return true;
+        }
+      }
 
       const file = this.dataUrlToFile(fileData.dataUrl, fileData.name || 'reference.png');
       const dt = new DataTransfer();
@@ -222,66 +293,38 @@
 
       let { fileInput, attachButton } = this.findAttachmentElements();
 
-      // Strategy A: If file input exists, directly assign files
+      // If file input not present in DOM, click attach button to expose it
+      if (!fileInput && attachButton) {
+        console.log('[PromptFlow] Clicking attach button to expose file input...');
+        attachButton.click();
+        await sleep(500);
+        fileInput = this.findAttachmentElements().fileInput;
+      }
+
+      // Inject file directly into the file input using native property setter
       if (fileInput) {
         try {
-          fileInput.files = dt.files;
+          const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'files')?.set;
+          if (nativeSetter) {
+            nativeSetter.call(fileInput, dt.files);
+          } else {
+            fileInput.files = dt.files;
+          }
           fileInput.dispatchEvent(new Event('input', { bubbles: true }));
           fileInput.dispatchEvent(new Event('change', { bubbles: true }));
           console.log('[PromptFlow] Injected file into <input type="file">');
         } catch (e) {
           console.warn('[PromptFlow] Direct file input assignment warning:', e);
-        }
-      }
-
-      // Strategy B: If no input or direct assignment didn't trigger thumbnail, click attach button to summon input
-      if (!fileInput && attachButton) {
-        console.log('[PromptFlow] Clicking attach button to expose file input...');
-        attachButton.click();
-        await sleep(500);
-
-        const updated = this.findAttachmentElements();
-        if (updated.fileInput) {
-          updated.fileInput.files = dt.files;
-          updated.fileInput.dispatchEvent(new Event('input', { bubbles: true }));
-          updated.fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-          console.log('[PromptFlow] Attached via exposed file input');
-        }
-      }
-
-      // Strategy C: Drag-and-drop fallback onto composer / form container
-      const composer = this.findComposer();
-      const targetDropZone = this.findComposerContainer() || composer;
-
-      if (targetDropZone) {
-        try {
-          const dragenter = new DragEvent('dragenter', {
-            dataTransfer: dt,
-            bubbles: true,
-            cancelable: true
-          });
-          const dragover = new DragEvent('dragover', {
-            dataTransfer: dt,
-            bubbles: true,
-            cancelable: true
-          });
-          const drop = new DragEvent('drop', {
-            dataTransfer: dt,
-            bubbles: true,
-            cancelable: true
-          });
-
-          targetDropZone.dispatchEvent(dragenter);
-          targetDropZone.dispatchEvent(dragover);
-          targetDropZone.dispatchEvent(drop);
-          console.log('[PromptFlow] Dispatched synthetic drop event on dropzone');
-        } catch (e) {
-          console.warn('[PromptFlow] Drag & drop dispatch warning:', e);
+          try {
+            fileInput.files = dt.files;
+            fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+          } catch (e2) {}
         }
       }
 
       // Now wait for attachment thumbnail to appear and stabilize
-      await this.waitForAttachment(35000);
+      await this.waitForAttachment(20000);
+      this.dismissStuckOverlays();
       console.log('[PromptFlow] Reference image upload verified successfully');
       return true;
     }
@@ -289,28 +332,35 @@
     /**
      * Waits until the uploaded image attachment thumbnail is visible in composer.
      */
-    async waitForAttachment(timeoutMs = 35000) {
+    async waitForAttachment(timeoutMs = 20000) {
       const start = Date.now();
 
       while (Date.now() - start < timeoutMs) {
         const container = this.findComposerContainer() || document;
 
-        // Look for attachment preview elements
+        // Look for genuine attachment preview elements (strictly exclude buttons or file upload triggers)
         const previewSelectors = [
           '[data-testid="attachment-thumbnail"]',
-          '[data-testid*="attachment" i]',
-          'div[class*="attachment"]',
-          'div[class*="pill"]',
+          '[data-testid*="thumbnail" i]',
+          'button[aria-label*="Remove" i]',
+          'button[aria-label*="Delete" i]',
+          'button[data-testid*="remove" i]',
           'img[src^="blob:"]',
-          'img[src*="attachment"]'
+          'img[src*="attachment"]',
+          '[data-testid*="file-pill"]',
+          '[data-testid*="attachment-pill"]'
         ];
 
         let previewFound = false;
         for (const sel of previewSelectors) {
           const el = container.querySelector(sel);
-          if (el && el.offsetParent !== null) {
-            previewFound = true;
-            break;
+          if (el && this.isElementActive(el)) {
+            const isAttachButton = el.matches('button[data-testid*="attach" i], button[aria-label*="Attach" i], button[data-testid*="fruitjuice" i]') ||
+                                   el.closest('button[data-testid*="attach" i], button[aria-label*="Attach" i], button[data-testid*="fruitjuice" i]');
+            if (!isAttachButton) {
+              previewFound = true;
+              break;
+            }
           }
         }
 
@@ -318,12 +368,18 @@
         const spinner = container.querySelector('[role="progressbar"], .loading-spinner, [aria-label*="loading" i], [aria-label*="uploading" i]');
 
         if (previewFound && !spinner) {
-          // Extra grace period to allow ChatGPT's internal React state to register the upload
-          await sleep(1200);
+          await sleep(600);
           return true;
         }
 
-        await sleep(500);
+        // If file input has files buffered, consider upload initiated
+        const directFileInput = document.querySelector('input[type="file"]');
+        if (directFileInput && directFileInput.files && directFileInput.files.length > 0 && (Date.now() - start > 6000)) {
+          console.log('[PromptFlow] File input has buffered file, proceeding with upload...');
+          return true;
+        }
+
+        await sleep(400);
       }
 
       console.warn('[PromptFlow] Attachment verification timed out, checking composer state...');
@@ -331,24 +387,78 @@
     }
 
     /**
-     * Waits until ChatGPT is completely idle (not generating, composer active).
+     * Resets ChatGPT to a fresh conversation in the SAME tab without reloading.
+     */
+    async startNewChat() {
+      console.log('[PromptFlow] Starting new chat in same tab without page reload...');
+      const newChatSelectors = [
+        'a[href="/"]',
+        'button[data-testid="create-new-chat-button"]',
+        'button[aria-label*="New chat" i]',
+        'a[aria-label*="New chat" i]',
+        '[data-testid="new-chat-button"]',
+        'a[data-discover="true"][href="/"]'
+      ];
+
+      for (const sel of newChatSelectors) {
+        const el = document.querySelector(sel);
+        if (el && el.offsetParent !== null) {
+          el.click();
+          console.log('[PromptFlow] Clicked New Chat button in same tab:', sel);
+          await sleep(1200);
+          return true;
+        }
+      }
+
+      // Check sidebar open/toggle
+      const sidebarToggle = document.querySelector('button[aria-label*="sidebar" i], [data-testid="open-sidebar-button"]');
+      if (sidebarToggle) {
+        sidebarToggle.click();
+        await sleep(400);
+        for (const sel of newChatSelectors) {
+          const el = document.querySelector(sel);
+          if (el && el.offsetParent !== null) {
+            el.click();
+            await sleep(1200);
+            return true;
+          }
+        }
+      }
+
+      // Client navigation fallback without reload
+      if (window.location.pathname !== '/') {
+        window.history.pushState(null, '', '/');
+        window.dispatchEvent(new PopStateEvent('popstate'));
+        await sleep(1000);
+      }
+      return true;
+    }
+
+    /**
+     * Waits until ChatGPT is completely idle (not generating, composer present).
      */
     async waitForIdle(timeoutMs = 15000) {
+      this.dismissStuckOverlays();
       const start = Date.now();
       while (Date.now() - start < timeoutMs) {
         if (!this.isGenerating()) {
-          await sleep(400);
-          return true;
+          const composer = this.findComposer();
+          if (composer) {
+            await sleep(300);
+            return true;
+          }
         }
-        await sleep(350);
+        await sleep(300);
       }
       return false;
     }
 
     /**
      * Inserts prompt text into ChatGPT composer using native input pipelines.
+     * Works seamlessly even when tab is in background / off-screen.
      */
     async insertPrompt(text) {
+      this.dismissStuckOverlays();
       // Ensure ChatGPT is not still generating from previous prompt
       await this.waitForIdle(15000);
 
@@ -358,12 +468,12 @@
       }
 
       composer.focus();
-      await sleep(150);
+      await sleep(100);
 
       const isContentEditable = composer.isContentEditable || composer.getAttribute('contenteditable') === 'true';
 
       if (isContentEditable) {
-        // Clear existing content cleanly using window selection
+        // Clear existing content cleanly
         try {
           const sel = window.getSelection();
           const range = document.createRange();
@@ -371,16 +481,34 @@
           sel.removeAllRanges();
           sel.addRange(range);
           document.execCommand('delete', false, null);
-        } catch (e) {
-          composer.textContent = '';
-        }
-        await sleep(60);
+        } catch (e) {}
+        composer.innerHTML = '';
+        composer.textContent = '';
+        await sleep(40);
 
-        // Native insertText triggers Lexical/ProseMirror listeners
-        let success = document.execCommand('insertText', false, text);
+        // Native insertText
+        let success = false;
+        try {
+          success = document.execCommand('insertText', false, text);
+        } catch (e) {}
 
-        if (!success || composer.innerText.trim() !== text.trim()) {
-          composer.innerHTML = `<p>${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`;
+        await sleep(50);
+        const currentContent = (composer.innerText || composer.textContent || '').trim();
+        const snippet = text.slice(0, Math.min(20, text.length));
+
+        // When tab is not focused / in background, execCommand is disabled by Chromium.
+        // Directly inject Lexical-compliant DOM structure:
+        if (!success || !currentContent || !currentContent.includes(snippet)) {
+          console.log('[PromptFlow] Native insertText incomplete (background tab), applying direct Lexical DOM injection...');
+          const p = document.createElement('p');
+          p.setAttribute('dir', 'auto');
+          const span = document.createElement('span');
+          span.setAttribute('data-lexical-text', 'true');
+          span.textContent = text;
+          p.appendChild(span);
+          composer.innerHTML = '';
+          composer.appendChild(p);
+
           composer.dispatchEvent(
             new InputEvent('beforeinput', {
               bubbles: true,
@@ -397,6 +525,7 @@
               data: text
             })
           );
+          composer.dispatchEvent(new Event('input', { bubbles: true }));
           composer.dispatchEvent(new Event('change', { bubbles: true }));
         }
       } else {
@@ -412,55 +541,136 @@
     }
 
     /**
+     * Seamlessly inserts prompt text and submits in ONE atomic operation.
+     * Uses the Main World Lexical Bridge for instant state updates in background tabs.
+     */
+    async insertAndSubmitPrompt(text) {
+      if (this._isSubmittingPrompt) {
+        console.warn('[PromptFlow] Prompt submission already in progress, skipping duplicate');
+        return true;
+      }
+      this._isSubmittingPrompt = true;
+
+      try {
+        this.dismissStuckOverlays();
+
+        // 1. Try Main World Lexical Bridge first (CSP-exempt, directly sets Lexical EditorState)
+        const nonce = 'pf_' + Math.random().toString(36).slice(2);
+
+        const bridgePromise = new Promise((resolve) => {
+          const handler = (e) => {
+            if (e.detail?.nonce === nonce) {
+              window.removeEventListener('__PROMPTFLOW_MAIN_DONE__', handler);
+              resolve(e.detail);
+            }
+          };
+          window.addEventListener('__PROMPTFLOW_MAIN_DONE__', handler);
+          setTimeout(() => {
+            window.removeEventListener('__PROMPTFLOW_MAIN_DONE__', handler);
+            resolve({ success: false, timeout: true });
+          }, 2500);
+        });
+
+        window.dispatchEvent(
+          new CustomEvent('__PROMPTFLOW_MAIN_SUBMIT__', {
+            detail: { promptText: text, nonce }
+          })
+        );
+
+        const res = await bridgePromise;
+        if (res && res.success) {
+          console.log('[PromptFlow] Prompt submitted via Main World Lexical Bridge!');
+          await sleep(600);
+          return true;
+        }
+
+        console.log('[PromptFlow] Main World Bridge note:', res?.error || 'timeout, using isolated fallback');
+
+        // 2. Fallback: Isolated world input and single sendBtn.click()
+        await this.insertPrompt(text);
+        await sleep(300);
+        await this.submitPrompt();
+        return true;
+      } finally {
+        this._isSubmittingPrompt = false;
+      }
+    }
+
+    /**
      * Submits the prompt by clicking Send or triggering Enter keydown.
-     * Verifies that the prompt was actually dispatched.
+     * Dispatches exactly ONE submission event to prevent duplicate prompts.
      */
     async submitPrompt() {
-      // 1. Wait for Send button to become enabled
-      let sendBtn = null;
-      for (let i = 0; i < 20; i++) {
-        sendBtn = this.findSendButton();
-        if (sendBtn && !sendBtn.disabled && sendBtn.getAttribute('aria-disabled') !== 'true') {
-          break;
+      if (this._isSubmittingPrompt) {
+        console.warn('[PromptFlow] submitPrompt is already in progress, ignoring duplicate call');
+        return true;
+      }
+      this._isSubmittingPrompt = true;
+
+      try {
+        this.dismissStuckOverlays();
+
+        // 1. Wait briefly for Send button to become enabled (up to 3s with active input refresh)
+        let sendBtn = null;
+        for (let i = 0; i < 6; i++) {
+          sendBtn = this.findSendButton();
+          if (sendBtn && !sendBtn.disabled && sendBtn.getAttribute('aria-disabled') !== 'true') {
+            break;
+          }
+
+          // Periodic input event refresh to wake up ChatGPT Lexical state
+          const composer = this.findComposer();
+          if (composer) {
+            composer.focus();
+            composer.dispatchEvent(new Event('input', { bubbles: true }));
+            composer.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          await sleep(400);
         }
-        await sleep(200);
-      }
 
-      if (sendBtn && !sendBtn.disabled && sendBtn.getAttribute('aria-disabled') !== 'true') {
-        sendBtn.click();
-        console.log('[PromptFlow] Clicked Send button successfully');
-        await sleep(500);
-        return true;
-      }
+        if (sendBtn) {
+          sendBtn.removeAttribute('disabled');
+          sendBtn.setAttribute('aria-disabled', 'false');
+          sendBtn.disabled = false;
+          sendBtn.focus();
+          // Dispatch ONLY the single native click event to prevent sending duplicate prompts
+          sendBtn.click();
+          console.log('[PromptFlow] Clicked Send button successfully (single dispatch)');
+          await sleep(800);
+          return true;
+        }
 
-      // 2. Fallback: Dispatch Enter keydown/keyup on composer
-      const composer = this.findComposer();
-      if (composer) {
-        console.log('[PromptFlow] Fallback: Dispatching Enter keydown on composer');
-        composer.focus();
-        const enterDown = new KeyboardEvent('keydown', {
-          key: 'Enter',
-          code: 'Enter',
-          keyCode: 13,
-          which: 13,
-          bubbles: true,
-          cancelable: true
-        });
-        const enterUp = new KeyboardEvent('keyup', {
-          key: 'Enter',
-          code: 'Enter',
-          keyCode: 13,
-          which: 13,
-          bubbles: true,
-          cancelable: true
-        });
-        composer.dispatchEvent(enterDown);
-        composer.dispatchEvent(enterUp);
-        await sleep(500);
-        return true;
-      }
+        // 2. Fallback: Dispatch Enter keydown/keyup on composer ONLY if send button was not found
+        const composer = this.findComposer();
+        if (composer) {
+          console.log('[PromptFlow] Fallback: Dispatching Enter keydown on composer');
+          composer.focus();
+          const enterDown = new KeyboardEvent('keydown', {
+            key: 'Enter',
+            code: 'Enter',
+            keyCode: 13,
+            which: 13,
+            bubbles: true,
+            cancelable: true
+          });
+          const enterUp = new KeyboardEvent('keyup', {
+            key: 'Enter',
+            code: 'Enter',
+            keyCode: 13,
+            which: 13,
+            bubbles: true,
+            cancelable: true
+          });
+          composer.dispatchEvent(enterDown);
+          composer.dispatchEvent(enterUp);
+          await sleep(800);
+          return true;
+        }
 
-      throw new Error('Failed to submit prompt: Send button not clickable and composer not responsive');
+        throw new Error('Failed to submit prompt: Send button not clickable after waiting');
+      } finally {
+        this._isSubmittingPrompt = false;
+      }
     }
 
     /**
@@ -496,8 +706,9 @@
       });
       const assistantMsgs = this.getAssistantMessages();
       this.baselineAssistantCount = assistantMsgs.length;
-      console.log(`[PromptFlow] Recorded snapshot of ${this.existingImagesSnapshot.size} images. Baseline assistant count: ${this.baselineAssistantCount}`);
-      return { count: this.existingImagesSnapshot.size, baselineAssistantCount: this.baselineAssistantCount };
+      this.baselineTurnCount = this.getAssistantTurns().length;
+      console.log(`[PromptFlow] Recorded snapshot of ${this.existingImagesSnapshot.size} images. Baseline assistant msgs: ${this.baselineAssistantCount}, turns: ${this.baselineTurnCount}`);
+      return { count: this.existingImagesSnapshot.size, baselineAssistantCount: this.baselineAssistantCount, baselineTurns: this.baselineTurnCount };
     }
 
     /**
@@ -714,10 +925,13 @@
         const assistantMsgs = this.getAssistantMessages();
 
         // Target ONLY the assistant message(s) created for THIS prompt!
-        const targetScopes = assistantMsgs.length > targetAssistantIndex
-          ? assistantMsgs.slice(targetAssistantIndex)
-          : (assistantMsgs.length > 0 ? [assistantMsgs[assistantMsgs.length - 1]] : []);
+        // Never fall back to older assistant messages!
+        if (assistantMsgs.length <= targetAssistantIndex) {
+          await sleep(800);
+          continue;
+        }
 
+        const targetScopes = assistantMsgs.slice(targetAssistantIndex);
         const candidateImages = [];
 
         for (const scope of targetScopes) {
@@ -922,6 +1136,13 @@
             break;
           }
 
+          case 'START_NEW_CHAT': {
+            overlay.createOrUpdate('PromptFlow', 'Starting fresh chat in same tab...', 'info');
+            const success = await adapter.startNewChat();
+            sendResponse({ success });
+            break;
+          }
+
           case 'PREPARE_REFERENCE_UPLOAD': {
             overlay.createOrUpdate('PromptFlow', 'Uploading Reference Image...', 'generating');
             const success = await adapter.uploadReference(message.fileData);
@@ -937,9 +1158,7 @@
 
           case 'SUBMIT_PROMPT': {
             overlay.createOrUpdate('PromptFlow', `Sending Prompt ${message.promptIndex}...`, 'generating');
-            await adapter.insertPrompt(message.promptText);
-            await sleep(400);
-            await adapter.submitPrompt();
+            await adapter.insertAndSubmitPrompt(message.promptText);
             sendResponse({ success: true });
             break;
           }

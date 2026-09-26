@@ -52,26 +52,103 @@
 
     <!-- Main Content Area -->
     <main id="mainView" class="view-panel active">
-      <!-- Reference Image Section -->
-      <section class="card section-ref-image">
-        <div class="section-label">
-          <span>REFERENCE IMAGE</span>
-          <span class="sub-label">Required for image context</span>
+      <!-- Quick Customizer Bar: Model, Fit, Zoom & Pose Rotation -->
+      <section class="card section-quick-config">
+        <div class="config-bar-header">
+          <div class="config-bar-title">
+            <span>CUSTOMIZER</span>
+            <span id="quickConfigTarget" class="badge-target">Active Design: #1</span>
+          </div>
+          <button type="button" id="btnApplyConfigToAll" class="btn-text-sm" title="Apply these settings to all designs in queue">Sync to All Images</button>
+        </div>
+
+        <div class="config-bar-grid">
+          <!-- Model Gender -->
+          <div class="config-item">
+            <label class="config-label" for="quickModelGender">Model</label>
+            <div class="select-wrapper">
+              <select id="quickModelGender" class="config-select">
+                <option value="female">♀ Female Model</option>
+                <option value="male">♂ Male Model</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Garment Type / Fit Typebox -->
+          <div class="config-item">
+            <label class="config-label" for="quickTshirtType" title="Type 'same' to match reference garment, or type 'hoodie', 'oversized', etc.">Garment / Fit (Typebox)</label>
+            <div class="input-wrapper">
+              <input type="text" id="quickTshirtType" class="config-input" list="garmentSuggestions" placeholder="e.g. same, hoodie, oversized" value="same" autocomplete="off" spellcheck="false">
+              <datalist id="garmentSuggestions">
+                <option value="same">Same as Reference (Hoodie, T-Shirt, Jacket, etc.)</option>
+                <option value="hoodie">Hoodie / Pullover</option>
+                <option value="oversized hoodie">Oversized Hoodie</option>
+                <option value="oversized">Oversized T-Shirt</option>
+                <option value="normal">Normal / Regular T-Shirt</option>
+                <option value="crop">Crop Top / Crop Hoodie</option>
+                <option value="boxy">Boxy Heavyweight</option>
+                <option value="polo">Polo Collar</option>
+                <option value="sweatshirt">Crewneck Sweatshirt</option>
+                <option value="jacket">Streetwear Jacket</option>
+              </datalist>
+            </div>
+          </div>
+
+          <!-- Framing / Zoom -->
+          <div class="config-item">
+            <label class="config-label" for="quickZoomType">Framing / Zoom</label>
+            <div class="select-wrapper">
+              <select id="quickZoomType" class="config-select">
+                <option value="medium">Medium (Head-to-Thigh)</option>
+                <option value="full_body">Full Body Shot</option>
+                <option value="torso_zoom">Torso Zoomed</option>
+                <option value="macro_zoom">Extreme Macro</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="pose-rotation-info">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+          </svg>
+          <span><b>30 Presets (3 Angles × 10 Sets):</b> 1=Front (Print), 2=Back, 3=Side. Rotates across queue.</span>
+        </div>
+      </section>
+
+      <!-- Multi-Image Reference Queue Section -->
+      <section class="card section-ref-queue">
+        <div class="section-label-row">
+          <div class="section-label">
+            <span>REFERENCE DESIGNS QUEUE</span>
+            <span id="queueCounter" class="badge-count">0 Designs</span>
+          </div>
+          <div class="queue-actions">
+            <button type="button" id="btnAddMoreFiles" class="btn-text" title="Add more reference images to queue">+ Add Images</button>
+            <span class="action-divider">•</span>
+            <button type="button" id="btnClearQueue" class="btn-text" title="Clear all designs from queue">Clear Queue</button>
+          </div>
         </div>
 
         <div id="dropZone" class="drop-zone">
-          <input type="file" id="fileInput" accept="image/png, image/jpeg, image/jpg, image/webp" class="visually-hidden">
+          <input type="file" id="fileInput" accept="image/png, image/jpeg, image/jpg, image/webp" multiple class="visually-hidden">
           <div class="drop-zone-prompt">
-            <svg class="drop-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <svg class="drop-icon" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
               <circle cx="8.5" cy="8.5" r="1.5"></circle>
               <polyline points="21 15 16 10 5 21"></polyline>
             </svg>
-            <div class="drop-text-primary">Drop image here or <span class="highlight">browse</span></div>
-            <div class="drop-text-secondary">Supports PNG, JPG, JPEG, WEBP</div>
+            <div class="drop-text-primary">Drop one or <span class="highlight">multiple images</span> here</div>
+            <div class="drop-text-secondary">Generates custom prompts & separate ZIP files for each design</div>
           </div>
         </div>
 
+        <!-- Interactive Queue List -->
+        <div id="queueListContainer" class="queue-list-container hidden">
+          <!-- Populated dynamically with Queue Cards -->
+        </div>
+
+        <!-- Legacy single image preview fallback container -->
         <div id="imagePreviewContainer" class="image-preview-container hidden">
           <div class="preview-left">
             <img id="imageThumbnail" class="image-thumbnail" alt="Reference preview" src="">
@@ -88,11 +165,11 @@
       <section class="card section-prompts">
         <div class="section-label-row">
           <div class="section-label">
-            <span>PROMPTS</span>
+            <span id="promptsHeaderTitle">PROMPTS</span>
             <span id="activePromptCounter" class="badge-count">6 / 6 Active</span>
           </div>
           <div class="prompt-header-actions">
-            <button type="button" id="btnRestoreDefaults" class="btn-text" title="Restore all 6 default prompts">Restore defaults</button>
+            <button type="button" id="btnRestoreDefaults" class="btn-text" title="Regenerate prompts using current Model & Fit">Regenerate</button>
             <span class="action-divider">•</span>
             <button type="button" id="btnClearAllPrompts" class="btn-text" title="Clear all prompt texts">Clear all</button>
           </div>
@@ -124,12 +201,12 @@
         </div>
       </section>
 
-      <!-- Batch Download Section (ZIP & name_X) -->
+      <!-- Batch Download Section (Multiple ZIPs & Single ZIP) -->
       <section class="card section-batch-download">
         <div class="section-label-row">
           <div class="section-label">
-            <span>BATCH DOWNLOAD</span>
-            <span class="sub-label">ZIP Bundle or Individual Files</span>
+            <span>DOWNLOAD BUNDLES</span>
+            <span class="sub-label">Separate ZIP Archive per Design</span>
           </div>
           <span id="batchDownloadCounter" class="badge-count">0 Ready</span>
         </div>
@@ -137,28 +214,38 @@
         <div class="batch-download-controls">
           <div class="batch-input-field">
             <span class="batch-prefix-label">Prefix:</span>
-            <input type="text" id="inputBaseName" value="name" placeholder="name" spellcheck="false">
+            <input type="text" id="inputBaseName" value="" placeholder="name (empty = image_x_x)" spellcheck="false">
             <span class="batch-suffix-label">_X.png / .zip</span>
           </div>
 
-          <!-- Primary: Single ZIP Download (0 Permission Prompts) -->
-          <button type="button" id="btnDownloadZip" class="btn btn-download-zip" disabled>
+          <!-- Primary: Download All Queue ZIPs Button -->
+          <button type="button" id="btnDownloadAllQueueZips" class="btn btn-download-zip" disabled>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
               <path d="M21 8v13H3V8"></path>
               <path d="M1 3h22v5H1z"></path>
               <path d="M10 12h4"></path>
             </svg>
-            <span>DOWNLOAD AS ZIP (1 File - No Prompts)</span>
+            <span>DOWNLOAD ALL ZIPs (Multiple Files)</span>
           </button>
 
-          <!-- Secondary: Individual Files -->
+          <!-- Secondary: Active Design ZIP -->
+          <button type="button" id="btnDownloadZip" class="btn btn-download-secondary" disabled>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M21 8v13H3V8"></path>
+              <path d="M1 3h22v5H1z"></path>
+              <path d="M10 12h4"></path>
+            </svg>
+            <span>Download Active Design ZIP (1 File)</span>
+          </button>
+
+          <!-- Tertiary: Individual PNGs -->
           <button type="button" id="btnDownloadAll" class="btn btn-download-secondary" disabled>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
               <polyline points="7 10 12 15 17 10"></polyline>
               <line x1="12" y1="15" x2="12" y2="3"></line>
             </svg>
-            <span>Download Individual Files (0)</span>
+            <span>Download Individual PNGs (0)</span>
           </button>
         </div>
 
@@ -170,7 +257,7 @@
             <line x1="12" y1="8" x2="12.01" y2="8"></line>
           </svg>
           <div class="batch-tip-content">
-            <strong>Browser asking permission?</strong> Use <b>ZIP</b> for 1-click download with zero prompts. For separate files, turn off <i>"Ask where to save each file"</i> in <code>chrome://settings/downloads</code>.
+            <strong>Browser asking permission?</strong> ZIP gives 1-click download with zero prompts. For separate files, turn off <i>"Ask where to save each file"</i> in <code>chrome://settings/downloads</code>.
           </div>
         </div>
 
@@ -207,6 +294,59 @@
         <button id="btnCloseSettings" class="icon-btn" aria-label="Close Settings">✕</button>
       </div>
       <div class="overlay-content">
+        <!-- Model Gender -->
+        <div class="setting-group">
+          <label for="settingModelGender">Model Gender</label>
+          <select id="settingModelGender">
+            <option value="female">Female Model (Dolphin shorts, long wavy hair)</option>
+            <option value="male">Male Model (Tailored dark shorts/chinos, athletic build)</option>
+          </select>
+          <span class="setting-hint">Model gender used for the 3 model catalog poses.</span>
+        </div>
+
+        <!-- Garment Type & Fit Typebox -->
+        <div class="setting-group">
+          <label for="settingTshirtType">Garment Type & Fit (Typebox)</label>
+          <input type="text" id="settingTshirtType" list="garmentSuggestions" placeholder="e.g. same, hoodie, oversized" value="same">
+          <span class="setting-hint">Type "same" to match reference garment (hoodie, t-shirt, jacket, etc.) exactly. Or specify custom apparel.</span>
+        </div>
+
+        <!-- Framing / Zoom -->
+        <div class="setting-group">
+          <label for="settingZoomType">Framing / Zoom Level</label>
+          <select id="settingZoomType">
+            <option value="medium">Medium Shot (Head to mid-thigh portrait)</option>
+            <option value="full_body">Full Body Shot (Head to toe with sneakers)</option>
+            <option value="torso_zoom">Torso Zoomed (Shoulders to waistline)</option>
+            <option value="macro_zoom">Extreme Macro (Ultra close fabric & print texture)</option>
+          </select>
+          <span class="setting-hint">Camera framing distance for fashion shots.</span>
+        </div>
+
+        <!-- Starting Pose Preset Set -->
+        <div class="setting-group">
+          <label for="settingStartingPose">Pose Preset Set (3 Angles × 10 Sets)</label>
+          <select id="settingStartingPose">
+            <option value="0">Preset 1: Classic Front / Straight Back / 90° Profile Right</option>
+            <option value="1">Preset 2: Pockets Front / Over-Shoulder Right / 90° Profile Left</option>
+            <option value="2">Preset 3: In-Motion Walk / Rear Pockets Back / 45° Dynamic Turn</option>
+            <option value="3">Preset 4: Folded Arms / Walking Away Back / Side Pocket Hand</option>
+            <option value="4">Preset 5: Collar Touch / Left Glance Back / Side Dynamic Stride</option>
+            <option value="5">Preset 6: Waistband Thumbs / Hands Behind Back / Side Look Ahead</option>
+            <option value="6">Preset 7: Weight Shift / Nape Touch Back / 45° Glance Side</option>
+            <option value="7">Preset 8: 15° Pivot Front / 15° Turn Back / Side Hand on Hip</option>
+            <option value="8">Preset 9: Studio Lean Front / Contra Posture Back / Side Relaxed Lean</option>
+            <option value="9">Preset 10: Power Stance Front / Symmetrical Back / Side Minimalist</option>
+          </select>
+          <span class="setting-hint">Starting rotation set. Image 1 is Front (print), 2 is Back, 3 is Side profile.</span>
+        </div>
+
+        <!-- Auto-Download ZIP toggle -->
+        <div class="setting-toggle-row">
+          <label for="settingAutoZipQueueItems">Auto-Download ZIP per Design</label>
+          <input type="checkbox" id="settingAutoZipQueueItems" checked>
+        </div>
+
         <div class="setting-group">
           <label for="settingTimeout">Generation Timeout (minutes)</label>
           <input type="number" id="settingTimeout" min="1" max="15" value="5">
