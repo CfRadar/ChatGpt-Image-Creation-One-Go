@@ -21,7 +21,9 @@ export const DEFAULT_SETTINGS = {
   // Apparel & Model Customization
   modelGender: 'female', // 'female' | 'male'
   tshirtType: 'same', // 'same' (matches reference image hoodie, t-shirt, etc.) or custom string like 'hoodie', 'oversized', etc.
-  zoomType: 'medium', // 'medium' | 'full_body' | 'torso_zoom' | 'macro_zoom'
+  sleeveType: 'same', // 'same' (matches reference sleeve length) or custom string like 'long', 'short', 'sleeveless', etc.
+  zoomType: 'medium', // 'medium' | 'full_body' | 'torso_zoom' | 'macro_zoom' (Model Framing)
+  printZoomType: 'tight', // 'tight' | 'chest_macro' | 'extreme_macro' | 'flat_lay' (Print Zoom Preset)
   startingPoseOffset: 0, // 0..9 (Preset Sets 1 to 10)
   autoZipQueueItems: false // only download once at the end in a single consolidated ZIP
 };
@@ -399,6 +401,36 @@ export const ZOOM_TYPES = {
   }
 };
 
+// ============================================================================
+// PRINT IMAGE ZOOM PRESETS (for Graphic Print / Detail Image)
+// ============================================================================
+export const PRINT_ZOOM_TYPES = {
+  tight: {
+    id: 'tight',
+    label: 'Tight Graphic Crop',
+    shortLabel: 'Tight',
+    description: 'Tightly cropped directly around the boundaries of the printed graphic artwork, keeping the print centered and filling the majority of the frame with clean, minimal surrounding garment margins.'
+  },
+  chest_macro: {
+    id: 'chest_macro',
+    label: 'Chest & Graphic View',
+    shortLabel: 'Chest',
+    description: 'Framed on the upper torso/chest graphic area, displaying the graphic artwork centered naturally on the garment chest with collar ribbing and natural shoulder drape context.'
+  },
+  extreme_macro: {
+    id: 'extreme_macro',
+    label: 'Extreme Macro (Ink/Texture)',
+    shortLabel: 'Macro',
+    description: 'Ultra-tight microscopic macro zoom focusing into the fine details of the graphic print, capturing rich ink texture, pigment film, and cotton knit fabric weave with extreme clarity.'
+  },
+  flat_lay: {
+    id: 'flat_lay',
+    label: 'Flat Lay Graphic',
+    shortLabel: 'Flat',
+    description: 'Crisp flat-lay product perspective of the front garment showing the printed design completely flat, unwrinkled, and geometrically balanced.'
+  }
+};
+
 export function resolveGarmentFit(fitInput = 'same') {
   const clean = (typeof fitInput === 'string' && fitInput.trim().length > 0 ? fitInput : 'same').trim();
   const lower = clean.toLowerCase();
@@ -442,6 +474,48 @@ export function resolveGarmentFit(fitInput = 'same') {
   };
 }
 
+export function resolveSleeveType(sleeveInput = 'same') {
+  const clean = (typeof sleeveInput === 'string' && sleeveInput.trim().length > 0 ? sleeveInput : 'same').trim();
+  const lower = clean.toLowerCase();
+
+  if (lower === 'same' || lower.includes('same as') || lower === 'reference' || lower === 'as image') {
+    return {
+      id: 'same',
+      label: 'Same as Reference',
+      isSame: true,
+      description: 'SLEEVE LENGTH & STYLE (SAME AS REFERENCE): Replicate the exact sleeve length, sleeve cut, cuff finish, and armhole tailoring visibly shown in the reference image (whether short sleeves, long sleeves, sleeveless, 3/4 sleeves, or drop-shoulder sleeves), preserving that exact sleeve construction faithfully.'
+    };
+  }
+
+  const isLong = lower.includes('long') || lower.includes('full');
+  const isShort = lower.includes('short') && !lower.includes('sleeveless');
+  const isSleeveless = lower.includes('sleeveless') || lower.includes('tank');
+  const isThreeQuarter = lower.includes('3/4') || lower.includes('three quarter');
+  const isHalf = lower.includes('half');
+
+  let detailedSleeveDesc = '';
+  if (isLong) {
+    detailedSleeveDesc = 'The garment MUST have authentic LONG SLEEVES extending fully to the wrists, with clean finished/ribbed cuffs.';
+  } else if (isShort) {
+    detailedSleeveDesc = 'The garment MUST have classic SHORT SLEEVES ending at the mid-bicep with clean hemmed cuffs.';
+  } else if (isSleeveless) {
+    detailedSleeveDesc = 'The garment MUST be SLEEVELESS with clean bound armholes (tank top cut) with NO sleeves attached.';
+  } else if (isThreeQuarter) {
+    detailedSleeveDesc = 'The garment MUST have THREE-QUARTER (3/4) LENGTH SLEEVES ending comfortably just below the elbow.';
+  } else if (isHalf) {
+    detailedSleeveDesc = 'The garment MUST have RELAXED HALF-LENGTH SLEEVES extending down toward the elbow.';
+  } else {
+    detailedSleeveDesc = `The garment MUST be constructed with authentic ${clean} sleeves.`;
+  }
+
+  return {
+    id: 'custom',
+    label: clean,
+    isSame: false,
+    description: `MANDATORY SLEEVE CUSTOMIZATION (${clean.toUpperCase()}): Even if the reference image shows different sleeves, the model's garment MUST be tailored with ${clean} sleeves: ${detailedSleeveDesc}`
+  };
+}
+
 export function calculatePoseIndices(queueIndex = 0, startingOffset = 0) {
   const presetIndex = (startingOffset + queueIndex) % 10;
   return [presetIndex, presetIndex, presetIndex];
@@ -456,7 +530,10 @@ export function buildPromptsForConfig(config = {}) {
 
   const model = MODEL_GENDERS[genderKey] || MODEL_GENDERS.female;
   const fit = resolveGarmentFit(config.tshirtType || 'same');
+  const sleeve = resolveSleeveType(config.sleeveType || 'same');
   const zoom = ZOOM_TYPES[zoomKey] || ZOOM_TYPES.medium;
+  const printZoomKey = config.printZoomType || 'tight';
+  const printZoom = PRINT_ZOOM_TYPES[printZoomKey] || PRINT_ZOOM_TYPES.tight;
 
   const frontIdx = (poseIndices[0] !== undefined ? poseIndices[0] : 0) % FRONT_POSES.length;
   const backIdx = (poseIndices[1] !== undefined ? poseIndices[1] : 0) % BACK_POSES.length;
@@ -466,24 +543,71 @@ export function buildPromptsForConfig(config = {}) {
   const backPose = BACK_POSES[backIdx] || BACK_POSES[0];
   const sidePose = SIDE_POSES[sideIdx] || SIDE_POSES[0];
 
+  const fitLower = (config.tshirtType || 'same').toLowerCase();
+  const isHoodie = fitLower.includes('hoodie') || fit.apparelName === 'hoodie';
+  const isJacket = fitLower.includes('jacket') || fit.apparelName === 'jacket';
+  const isSweatshirt = fitLower.includes('sweatshirt') || fitLower.includes('crewneck') || fit.apparelName === 'sweatshirt';
+  const isCustomApparel = !fit.isSame;
+
+  // Garment conversion rules
+  let garmentConversionRule = '';
+  if (isCustomApparel) {
+    if (isHoodie) {
+      garmentConversionRule = `MANDATORY GARMENT CONVERSION TO HOODIE (CRITICAL):
+The user explicitly specified a HOODIE. Even if the uploaded reference image shows a T-shirt, flat graphic, mockup, or other apparel, DO NOT generate a T-shirt.
+You MUST transform and convert the garment into an authentic hooded sweatshirt (hoodie):
+• It MUST have an attached double-layered fabric hood draped naturally around the neck and upper back with hanging drawstrings and metal/fabric eyelets.
+• It MUST have long sleeves with ribbed cuffs at the wrists${!sleeve.isSame ? ` (customized as: ${sleeve.label} sleeves)` : ''}.
+• It MUST be made of heavyweight cozy cotton/fleece fabric with a ribbed bottom hem.
+• It MUST NOT have short sleeves or a simple T-shirt crewneck collar.
+• Faithfully transfer and apply the exact graphic artwork, illustrations, typography, and colors from the reference image onto the front chest of this hoodie.`;
+    } else if (isJacket) {
+      garmentConversionRule = `MANDATORY GARMENT CONVERSION TO JACKET (CRITICAL):
+The user explicitly specified a JACKET (${fit.label}). Even if the uploaded reference image shows a T-shirt or graphic, DO NOT generate a T-shirt.
+Transform the garment into an authentic ${fit.label} with full long sleeves${!sleeve.isSame ? ` (customized as: ${sleeve.label} sleeves)` : ''}, structured fabric, collar/lapels or stand collar, and front closure, displaying the reference artwork and colors on the garment.`;
+    } else if (isSweatshirt) {
+      garmentConversionRule = `MANDATORY GARMENT CONVERSION TO SWEATSHIRT (CRITICAL):
+The user explicitly specified a SWEATSHIRT (${fit.label}). Even if the uploaded reference image shows a T-shirt, DO NOT generate a T-shirt.
+Transform the garment into an authentic long-sleeve crewneck sweatshirt with ribbed collar, ribbed cuffs at the wrists${!sleeve.isSame ? ` (customized as: ${sleeve.label} sleeves)` : ''}, ribbed hem, and heavyweight fleece fabric, displaying the reference artwork and colors on the front chest.`;
+    } else {
+      garmentConversionRule = `MANDATORY GARMENT TYPE & FIT (${fit.label.toUpperCase()}):
+The model MUST wear an authentic ${fit.label} (NOT a default t-shirt unless requested). Accurately construct the silhouette, garment cut, collar, and sleeves of a ${fit.label}, while faithfully applying the artwork, print, and colors from the reference image onto the garment.`;
+    }
+  } else {
+    garmentConversionRule = `GARMENT TYPE & SILHOUETTE (SAME AS REFERENCE):
+Replicate the exact garment type, cut, silhouette, drape, and sleeves shown in the reference image:
+• Whether the reference image is an oversized T-shirt, regular T-shirt, hoodie, pullover, crewneck sweatshirt, or jacket, faithfully replicate that exact garment type, fit, and construction.
+• If the reference image shows a T-shirt, the generated image MUST be a T-shirt with the exact same neckline and sleeves.
+• If the reference image shows a hoodie, the generated image MUST be a hoodie.
+• DO NOT add a hood, collar stand, or drawstrings if the reference is a normal T-shirt.
+• DO NOT change or alter the garment type.`;
+  }
+
+  // Sleeve rule injection
+  if (!sleeve.isSame) {
+    garmentConversionRule += `\n• ${sleeve.description}`;
+  }
+
   // Prompt 1: Front View with Model in Printed Garment
-  const prompt1 = `Use the uploaded reference image as the exact source of truth for the ${fit.apparelName}.
+  const prompt1 = `Reference Image Guide:
+${isCustomApparel ? `Use the uploaded reference image for the graphic print, artwork, colors, and design styling. The garment itself must be transformed into a ${fit.label}.` : `Use the uploaded reference image as the exact source of truth for both the garment type and the artwork.`}
 
-Create a premium e-commerce fashion photograph of ${model.description} wearing the ${fit.apparelName} shown in the reference image.
+Create a premium e-commerce fashion photograph of ${model.description} wearing ${isCustomApparel ? `a ${fit.label} featuring the exact printed graphic from the reference image` : `the ${fit.apparelName} shown in the reference image`}.
 
+FRONT VIEW ONLY:
 ${frontPose.direction}.
 The model is facing the camera displaying the front of the ${fit.apparelName} with the printed graphic/design clearly visible, centered, completely flat, and unobstructed. The front graphic/print must match the uploaded reference image exactly in design, artwork, colors, placement, and proportions.
 
 EXACT FRAMING & CROPPING (CRITICAL):
-${zoom.description}
+${zoom.description.replace(/T-shirt/g, fit.apparelName)}
 
 STYLING & POSE:
 ${model.styling}
 ${frontPose.description}
 
 GARMENT FIT & FIDELITY:
-${fit.description}
-The ${fit.apparelName} must remain completely faithful to the reference: identical color, fabric appearance, length, shoulder width, sleeve length, neckline/collar/hood, stitching, seams, proportions, graphics, artwork, print placement, print size, and print colors. Do not redesign, reinterpret, simplify, or alter the garment or its print.
+${garmentConversionRule}
+The graphic print, artwork, colors, and design elements must match the reference image with 100% precision. Do not invent any unverified text or symbols.
 
 LIGHTING & BACKGROUND:
 Clean pure white seamless studio background (#FFFFFF), soft professional portrait studio lighting, no floor or ground shadow, photorealistic skin and fabric texture.
@@ -491,23 +615,23 @@ Clean pure white seamless studio background (#FFFFFF), soft professional portrai
 Photorealistic, sharp focus, clean, premium e-commerce fashion product photography suitable for Meesho, Amazon, Flipkart listings.`;
 
   // Prompt 2: Back View of Model
-  const prompt2 = `Use the uploaded reference image as the exact source of truth for the ${fit.apparelName} and maintain the same ${model.id === 'male' ? 'adult male' : 'adult female'} model, body proportions, styling, lighting, and studio environment as the previous image.
+  const prompt2 = `Reference Image Guide:
+Maintain the exact same ${model.id === 'male' ? 'adult male' : 'adult female'} model, body proportions, styling, lighting, and studio environment as the previous image, wearing the exact same ${fit.apparelName}.
 
-Create a premium e-commerce fashion photograph showing the BACK VIEW of the exact same ${fit.apparelName} on the same model.
-
+BACK VIEW ONLY:
 ${backPose.direction}.
-The model is turned facing away from the camera displaying the clean back of the garment. The back of the ${fit.apparelName} must contain NO printed graphic unless visibly present on the back in the reference image. Preserve the exact garment construction from the reference: identical color, fabric, silhouette, neckline, stitching, and seams. Do not invent any unverified artwork.
+The model is turned facing away from the camera displaying the clean back of the ${fit.apparelName}. The back of the ${fit.apparelName} must contain NO printed graphic unless visibly present on the back in the reference image. Clean unprinted fabric drape.
 
 EXACT FRAMING & CROPPING (CRITICAL):
-${zoom.description}
+${zoom.description.replace(/T-shirt/g, fit.apparelName)}
 
 STYLING & POSE:
 ${backPose.description}
 Preserve the exact same model styling and seamless pure white studio setup.
 
-GARMENT FIT & FIDELITY:
-${fit.description}
-The back of the ${fit.apparelName} must remain identical to the reference image in color, fabric, silhouette, shoulder drop, sleeves, stitching, and seams. Clean unprinted fabric drape.
+GARMENT CONSTRUCTION & BACK VIEW FIDELITY:
+${isHoodie ? `The hoodie must show the hood resting naturally and smoothly on the upper back/neck, long sleeves draped naturally, ribbed hem, and clean unprinted fleece fabric across the back.` : `The back of the ${fit.apparelName} must remain completely consistent in color, fabric, and silhouette.`}
+${garmentConversionRule}
 
 LIGHTING & BACKGROUND:
 Clean pure white seamless studio background (#FFFFFF), soft diffused commercial portrait lighting, no floor or ground shadow, realistic fabric folds and natural skin texture.
@@ -515,64 +639,73 @@ Clean pure white seamless studio background (#FFFFFF), soft diffused commercial 
 Photorealistic premium fashion e-commerce photography suitable for marketplace product listings.`;
 
   // Prompt 3: Side View of Model
-  const prompt3 = `Use the uploaded reference image as the exact source of truth for the ${fit.apparelName} and maintain the same ${model.id === 'male' ? 'adult male' : 'adult female'} model, appearance, body proportions, styling, lighting, and studio environment as the previous images.
+  const prompt3 = `Reference Image Guide:
+Maintain the exact same ${model.id === 'male' ? 'adult male' : 'adult female'} model, appearance, body proportions, styling, lighting, and studio environment as the previous images, wearing the exact same ${fit.apparelName}.
 
-Create a premium e-commerce fashion photograph showing the SIDE VIEW of the exact same ${fit.apparelName} on the same model.
-
+SIDE PROFILE VIEW:
 ${sidePose.direction}.
-Show the clean side profile and silhouette of the garment, sleeve length, shoulder drop, armhole cut, and side hem drape. The ${fit.apparelName} must remain identical to the reference image in color, fabric, construction, proportions, neckline, sleeves, and stitching.
+Show the clean side profile and silhouette of the ${fit.apparelName}${isHoodie ? ', including the hood profile, long sleeves, and relaxed drape' : ', sleeve length, shoulder drop, and side hem drape'}.
 
 EXACT FRAMING & CROPPING (CRITICAL):
-${zoom.description}
+${zoom.description.replace(/T-shirt/g, fit.apparelName)}
 
 STYLING & POSE:
 ${sidePose.description}
 
 GARMENT FIT & FIDELITY:
-${fit.description}
-The ${fit.apparelName} must remain identical to the reference image in color, fabric, construction, proportions, neckline, sleeves, stitching, seams, print characteristics, and overall design. Do not modify or redesign the garment.
+${garmentConversionRule}
 
 LIGHTING & BACKGROUND:
 Clean pure white seamless studio background (#FFFFFF), soft commercial studio lighting, realistic fabric draping, realistic shadows on garment folds, no floor or ground shadow.
 
 Photorealistic high-end clothing catalog photography designed for online fashion marketplaces.`;
 
-  // Prompt 4: Neckline, Collar, or Hood Close-Up
-  let detailFocus = 'neckline and collar';
-  let detailDesc = 'collar shape, collar width, ribbing, stitching, thickness, fabric texture, color, seam construction, and natural material appearance';
-  const fitLower = (config.tshirtType || 'same').toLowerCase();
+  // Prompt 4: Detail Close-Up (Collar/Neckline vs Hood)
+  let detailTitle = 'Neckline & Collar Close-Up';
+  let detailFocus = '';
+  let detailDesc = '';
 
-  if (fitLower.includes('hoodie')) {
-    detailFocus = 'hood, drawstrings, eyelets, and neck construction';
-    detailDesc = 'hood shape, fabric thickness, drawstrings, metal/tipped eyelets, seam stitching, and natural material texture';
+  if (isHoodie) {
+    detailTitle = 'Hood & Drawstrings Close-Up';
+    detailFocus = 'attached hood, drawstrings, eyelets, and neck construction of the hoodie';
+    detailDesc = 'double-layered fabric hood shape, thick drawstrings with aglets/tips, metal/stitched eyelets, clean neck seam, and heavyweight fleece texture';
   } else if (fitLower.includes('polo')) {
+    detailTitle = 'Polo Collar & Placket Close-Up';
     detailFocus = 'polo collar, ribbing, and button placket';
     detailDesc = 'polo collar shape, ribbing, button placket, buttons, and collar seam construction';
   } else if (fit.isSame) {
-    detailFocus = 'collar, neckline, or hood construction (as visibly present in the reference image)';
-    detailDesc = 'exact collar, hood, neckline ribbing, stitching, fabric texture, and seam construction from the reference image';
+    detailTitle = 'Collar & Neckline Close-Up';
+    detailFocus = 'collar, neckline, or hood construction (matching the exact construction visibly present in the reference image)';
+    detailDesc = 'exact collar ribbing, stitching, neckline width, and seam construction from the reference image. If the reference is a T-shirt, show the ribbed crewneck collar cleanly and DO NOT show or add any hood or drawstrings';
+  } else {
+    detailTitle = 'Neckline & Collar Close-Up';
+    detailFocus = `neckline and collar construction of the ${fit.label}`;
+    detailDesc = `collar shape, collar ribbing/stitching, fabric texture, and seam construction of the ${fit.label}. DO NOT add a hood or drawstrings unless the garment is a hoodie`;
   }
 
-  const prompt4 = `Use the uploaded reference image as the exact source of truth for the ${fit.apparelName}.
+  const prompt4 = `Reference Image Guide:
+Use the uploaded reference image for the ${fit.apparelName}.
 
-Create an ultra-realistic professional e-commerce PRODUCT DETAIL CLOSE-UP focusing exclusively on the ${detailFocus} of the exact same ${fit.apparelName}.
+Create an ultra-realistic professional e-commerce PRODUCT DETAIL CLOSE-UP focusing exclusively on the ${detailFocus}.
 
-Show ONLY the upper neck/collar/hood region of the garment, with enough surrounding fabric to clearly demonstrate the construction.
+${isHoodie ? 'Show ONLY the hood, drawstrings, eyelets, and neck construction of the hoodie.' : 'Show ONLY the upper neckline and collar region of the garment (DO NOT add any hood or drawstrings if not present in the reference image).'}
 
-The image must accurately reproduce the reference garment's exact ${detailDesc}.
+The image must accurately reproduce the ${detailDesc}.
 
-Do not redesign or alter the construction.
-
-Use a straight-on, carefully controlled product-photography camera angle. Centered in frame. Show realistic cotton/fabric texture, fine stitching, subtle natural wrinkles and realistic construction details.
+Do not redesign or alter the construction. Centered in frame. Show realistic fabric texture, fine stitching, subtle natural wrinkles, and realistic construction details.
 
 Clean white or very light neutral studio background, soft diffused lighting, extremely sharp focus, realistic shadows, premium commercial product photography.
 
 No model face, no full body, no unnecessary props, no additional text, no watermark. Macro-level clothing detail photography suitable for an e-commerce product listing.`;
 
   // Prompt 5: Graphic Print Close-Up
-  const prompt5 = `Use the uploaded reference image as the exact source of truth for the T-shirt print.
+  const prompt5 = `Reference Image Guide:
+Use the uploaded reference image as the exact source of truth for the graphic print and artwork.
 
-Create an ultra-realistic high-resolution PRODUCT DETAIL CLOSE-UP showing ONLY the printed graphic/design on the T-shirt.
+Create an ultra-realistic high-resolution PRODUCT DETAIL CLOSE-UP showing ONLY the printed graphic/design on the ${fit.apparelName}.
+
+EXACT FRAMING & PRINT ZOOM:
+${printZoom.description}
 
 The print must be reproduced EXACTLY as it appears in the reference image.
 
@@ -580,38 +713,45 @@ Preserve every visible element of the original artwork: exact shapes, illustrati
 
 DO NOT redesign, rewrite, reinterpret, regenerate, correct, beautify, replace, or invent any text or artwork.
 
-The graphic must remain visually identical to the reference. Show the print applied naturally onto the actual T-shirt fabric, including realistic fabric texture, subtle wrinkles, slight material deformation, realistic ink/print texture and natural lighting.
+The graphic must remain visually identical to the reference. Show the print applied naturally onto the actual ${fit.apparelName} fabric, including realistic fabric texture, subtle wrinkles, slight material deformation, realistic ink/print texture and natural lighting.
 
-Crop tightly around the printed area so the print is the primary and dominant subject. Clean neutral/white studio presentation, professional commercial product photography, extremely sharp details.
+Clean neutral/white studio presentation, professional commercial product photography, extremely sharp details.
 
 No model face, no unnecessary background elements, no additional graphics, no invented text, no watermark. High-resolution e-commerce product-detail photography.`;
 
   // Prompt 6: Marketplace Listing Infographic
-  const prompt6 = `Use the uploaded reference image as the exact source of truth for the T-shirt itself.
+  let featureBullet1 = `• ${fit.label}`;
+  let featureBullet2 = isHoodie ? '• Double-layered hood & drawstrings' : isSweatshirt ? '• Reinforced ribbed crewneck' : '• Reinforced collar';
+  let featureBullet3 = !sleeve.isSame
+    ? `• ${sleeve.label} sleeves`
+    : (isHoodie || isSweatshirt || isJacket ? '• Long sleeves with ribbed cuffs' : '• Short sleeves');
+  let featureBullet4 = isHoodie || isSweatshirt ? '• Heavyweight premium fleece' : '• Premium breathable fabric';
+  let featureBullet5 = isHoodie ? '• Front kangaroo pocket' : '• Comfortable all-day feel';
+  let featureBullet6 = '• Vibrant high-definition graphic print';
 
-Create a premium fashion e-commerce PRODUCT LISTING INFOGRAPHIC based on the visual structure and presentation style of the supplied reference image.
+  const prompt6 = `Reference Image Guide:
+Create a premium fashion e-commerce PRODUCT LISTING INFOGRAPHIC for a ${fit.label}.
 
-The final image should look like a professionally designed marketplace listing image for a ${fit.label}.
+The final image should look like a professionally designed marketplace listing image for a ${fit.label} displaying the artwork from the reference image.
 
-Preserve the exact T-shirt design, color, fabric appearance, silhouette, ${fit.label.toLowerCase()} proportions, neckline, sleeves, stitching, seams, artwork, graphics, print placement and print colors. Do not redesign the product.
+${garmentConversionRule}
 
 MAIN COMPOSITION:
-Place a large, highly realistic front view of the exact T-shirt prominently on the left or center-left side. Make the T-shirt the dominant visual element.
+Place a large, highly realistic front view of the ${fit.label} prominently on the left or center-left side. Make the ${fit.apparelName} the dominant visual element.
 
-On the opposite side, create a clean organized product-information area containing concise visual feature callouts relevant to the actual garment, such as:
-• ${fit.label}
-• Premium breathable fabric
-• Comfortable all-day feel
-• Short sleeves
-• Reinforced collar
-• Vibrant graphic print
-• Streetwear styling
+On the opposite side, create a clean organized product-information area containing concise visual feature callouts:
+${featureBullet1}
+${featureBullet2}
+${featureBullet3}
+${featureBullet4}
+${featureBullet5}
+${featureBullet6}
 
-Add several smaller premium close-up panels along the bottom showing useful details of the same T-shirt:
-1. neckline/collar
+Add several smaller premium close-up panels along the bottom showing useful details of the same ${fit.apparelName}:
+1. ${isHoodie ? 'hood & drawstrings' : 'neckline/collar'}
 2. fabric texture
 3. printed design
-4. sleeve/hem stitching
+4. ${isHoodie || isSweatshirt ? 'cuff/hem ribbing' : 'sleeve/hem stitching'}
 
 Clean white background, realistic product photography, soft studio lighting, subtle shadows, accurate colors, sharp fabric details, polished commercial retouching.
 
@@ -621,7 +761,7 @@ No unnecessary models, no lifestyle scene, no clutter, no watermark. Final resul
     { id: 1, title: `Front View (${frontPose.shortName})`, text: prompt1 },
     { id: 2, title: `Back View (${backPose.shortName})`, text: prompt2 },
     { id: 3, title: `Side View (${sidePose.shortName})`, text: prompt3 },
-    { id: 4, title: 'Neckline & Collar Close-Up', text: prompt4 },
+    { id: 4, title: detailTitle, text: prompt4 },
     { id: 5, title: 'Graphic Print Close-Up', text: prompt5 },
     { id: 6, title: 'Listing Infographic', text: prompt6 }
   ];
@@ -684,7 +824,7 @@ export function resolveImageFilename(customName, designIndex = 1, promptIndex = 
 
 export function createQueueItem(fileData, queueIndex = 0, settings = {}) {
   const rawName = fileData.name ? fileData.name.replace(/\.[^/.]+$/, '') : `design_${queueIndex + 1}`;
-  const customName = (settings.baseFilename && typeof settings.baseFilename === 'string') ? settings.baseFilename.trim() : '';
+  const customName = (settings.customName || settings.baseFilename || '').trim();
   const baseFilename = customName || rawName.toLowerCase().replace(/[^a-z0-9_-]/g, '_').slice(0, 30) || `design_${queueIndex + 1}`;
   const startingOffset = typeof settings.startingPoseOffset === 'number'
     ? settings.startingPoseOffset
@@ -694,14 +834,19 @@ export function createQueueItem(fileData, queueIndex = 0, settings = {}) {
   const itemConfig = {
     modelGender: settings.modelGender || 'female',
     tshirtType: settings.tshirtType || 'same',
+    sleeveType: settings.sleeveType || 'same',
     zoomType: settings.zoomType || 'medium',
+    printZoomType: settings.printZoomType || 'tight',
+    customName: customName,
     startingPoseOffset: (startingOffset + queueIndex) % 10
   };
 
   const promptConfigs = buildPromptsForConfig({
     modelGender: itemConfig.modelGender,
     tshirtType: itemConfig.tshirtType,
+    sleeveType: itemConfig.sleeveType,
     zoomType: itemConfig.zoomType,
+    printZoomType: itemConfig.printZoomType,
     poseIndices,
     baseName: baseFilename
   });

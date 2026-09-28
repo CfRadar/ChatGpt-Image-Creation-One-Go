@@ -1011,17 +1011,77 @@
       this.hud = null;
       this.isMinimized = false;
       this.lastSession = null;
+      this.lastIsDone = null;
+      this.lastCount = null;
+      this.dotEl = null;
+      this.titleEl = null;
+      this.stepEl = null;
+      this.statusEl = null;
+      this.progressFillEl = null;
+      this.actionsEl = null;
+      this.toggleBtn = null;
+    }
+
+    _mountHUD() {
+      if (this.hud && document.body.contains(this.hud)) return;
+
+      if (!this.hud) {
+        this.hud = document.createElement('div');
+        this.hud.className = 'promptflow-floating-hud';
+      }
+
+      this.hud.innerHTML = `
+        <div class="promptflow-hud-header">
+          <div class="promptflow-hud-brand">
+            <div class="promptflow-badge-dot" id="promptflow-hud-dot"></div>
+            <span id="promptflow-hud-title">PromptFlow</span>
+          </div>
+          <span class="promptflow-hud-step" id="promptflow-hud-step">0 / 0 Ready</span>
+          <button type="button" class="promptflow-hud-btn-min" id="promptflow-btn-toggle" title="Minimize">—</button>
+        </div>
+        <div class="promptflow-hud-body">
+          <div class="promptflow-hud-status" id="promptflow-hud-status" title="Running...">Running...</div>
+          <div class="promptflow-hud-progress-track">
+            <div class="promptflow-hud-progress-fill" id="promptflow-hud-progress-fill" style="width: 0%"></div>
+          </div>
+        </div>
+        <div class="promptflow-hud-actions" id="promptflow-hud-actions"></div>
+      `;
+
+      if (!document.body.contains(this.hud)) {
+        document.body.appendChild(this.hud);
+      }
+
+      this.dotEl = this.hud.querySelector('#promptflow-hud-dot');
+      this.titleEl = this.hud.querySelector('#promptflow-hud-title');
+      this.stepEl = this.hud.querySelector('#promptflow-hud-step');
+      this.statusEl = this.hud.querySelector('#promptflow-hud-status');
+      this.progressFillEl = this.hud.querySelector('#promptflow-hud-progress-fill');
+      this.actionsEl = this.hud.querySelector('#promptflow-hud-actions');
+      this.toggleBtn = this.hud.querySelector('#promptflow-btn-toggle');
+
+      if (this.toggleBtn) {
+        this.toggleBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.isMinimized = !this.isMinimized;
+          if (this.isMinimized) {
+            this.hud.classList.add('minimized');
+            this.toggleBtn.textContent = '▢';
+            this.toggleBtn.title = 'Expand';
+          } else {
+            this.hud.classList.remove('minimized');
+            this.toggleBtn.textContent = '—';
+            this.toggleBtn.title = 'Minimize';
+          }
+        });
+      }
     }
 
     createOrUpdateHUD(session, overrideTitle = '', overrideStatus = '') {
       if (session) this.lastSession = session;
       const activeSession = session || this.lastSession;
 
-      if (!this.hud) {
-        this.hud = document.createElement('div');
-        this.hud.className = 'promptflow-floating-hud';
-        document.body.appendChild(this.hud);
-      }
+      this._mountHUD();
 
       const state = activeSession?.state || 'active';
       const statusMsg = overrideStatus || activeSession?.statusMessage || 'Running...';
@@ -1038,59 +1098,56 @@
         ? 'generating'
         : isDone ? 'completed' : state === 'error' ? 'error' : '';
 
-      this.hud.innerHTML = `
-        <div class="promptflow-hud-header">
-          <div class="promptflow-hud-brand">
-            <div class="promptflow-badge-dot ${dotClass}"></div>
-            <span>${title}</span>
-          </div>
-          <span class="promptflow-hud-step">${count} / ${total} Ready</span>
-          <button type="button" class="promptflow-hud-btn-min" id="promptflow-btn-toggle" title="${this.isMinimized ? 'Expand' : 'Minimize'}">${this.isMinimized ? '▢' : '—'}</button>
-        </div>
-        <div class="promptflow-hud-body">
-          <div class="promptflow-hud-status" title="${statusMsg}">${statusMsg}</div>
-          <div class="promptflow-hud-progress-track">
-            <div class="promptflow-hud-progress-fill" style="width: ${pct}%"></div>
-          </div>
-        </div>
-        <div class="promptflow-hud-actions">
-          ${isDone
-            ? `<button type="button" class="promptflow-hud-btn promptflow-hud-btn-download" id="promptflow-btn-hud-dl">Download All (${count})</button>`
-            : `<button type="button" class="promptflow-hud-btn promptflow-hud-btn-stop" id="promptflow-btn-hud-stop">Stop Automation</button>`
+      // Surgical DOM updates without destroying elements
+      if (this.titleEl && this.titleEl.textContent !== title) {
+        this.titleEl.textContent = title;
+      }
+      if (this.statusEl) {
+        if (this.statusEl.textContent !== statusMsg) this.statusEl.textContent = statusMsg;
+        if (this.statusEl.title !== statusMsg) this.statusEl.title = statusMsg;
+      }
+      const stepText = `${count} / ${total} Ready`;
+      if (this.stepEl && this.stepEl.textContent !== stepText) {
+        this.stepEl.textContent = stepText;
+      }
+      if (this.dotEl) {
+        const fullDotClass = 'promptflow-badge-dot' + (dotClass ? ' ' + dotClass : '');
+        if (this.dotEl.className !== fullDotClass) {
+          this.dotEl.className = fullDotClass;
+        }
+      }
+      if (this.progressFillEl) {
+        this.progressFillEl.style.width = `${pct}%`;
+      }
+
+      if (this.actionsEl && (this.lastIsDone !== isDone || this.lastCount !== count)) {
+        this.lastIsDone = isDone;
+        this.lastCount = count;
+        if (isDone) {
+          this.actionsEl.innerHTML = `<button type="button" class="promptflow-hud-btn promptflow-hud-btn-download" id="promptflow-btn-hud-dl">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <span>Download All (${count})</span>
+          </button>`;
+          const dlBtn = this.actionsEl.querySelector('#promptflow-btn-hud-dl');
+          if (dlBtn) {
+            dlBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              chrome.runtime.sendMessage({ type: 'DOWNLOAD_ALL' });
+            });
           }
-        </div>
-      `;
-
-      if (this.isMinimized) {
-        this.hud.classList.add('minimized');
-      } else {
-        this.hud.classList.remove('minimized');
-      }
-
-      // Bind events
-      const toggleBtn = this.hud.querySelector('#promptflow-btn-toggle');
-      if (toggleBtn) {
-        toggleBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this.isMinimized = !this.isMinimized;
-          this.createOrUpdateHUD(this.lastSession, title, statusMsg);
-        });
-      }
-
-      const stopBtn = this.hud.querySelector('#promptflow-btn-hud-stop');
-      if (stopBtn) {
-        stopBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          chrome.runtime.sendMessage({ type: 'STOP_AUTOMATION' });
-        });
-      }
-
-      const dlBtn = this.hud.querySelector('#promptflow-btn-hud-dl');
-      if (dlBtn) {
-        dlBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          chrome.runtime.sendMessage({ type: 'DOWNLOAD_ALL' });
-        });
+        } else {
+          this.actionsEl.innerHTML = `<button type="button" class="promptflow-hud-btn promptflow-hud-btn-stop" id="promptflow-btn-hud-stop">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
+            <span>Stop Automation</span>
+          </button>`;
+          const stopBtn = this.actionsEl.querySelector('#promptflow-btn-hud-stop');
+          if (stopBtn) {
+            stopBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              chrome.runtime.sendMessage({ type: 'STOP_AUTOMATION' });
+            });
+          }
+        }
       }
     }
 
@@ -1101,8 +1158,17 @@
     remove() {
       if (this.hud && this.hud.parentNode) {
         this.hud.parentNode.removeChild(this.hud);
-        this.hud = null;
       }
+      this.hud = null;
+      this.dotEl = null;
+      this.titleEl = null;
+      this.stepEl = null;
+      this.statusEl = null;
+      this.progressFillEl = null;
+      this.actionsEl = null;
+      this.toggleBtn = null;
+      this.lastIsDone = null;
+      this.lastCount = null;
     }
   }
 

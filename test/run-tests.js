@@ -476,6 +476,8 @@ console.log('\n[Test Suite 7] 6 Default Fashion Prompts & Custom Modification Li
     buildPromptsForConfig,
     createQueueItem,
     resolveGarmentFit,
+    resolveSleeveType,
+    PRINT_ZOOM_TYPES,
     resolveImageFilename
   } = await import('../utils/storage.js');
 
@@ -587,6 +589,10 @@ console.log('\n[Test Suite 7] 6 Default Fashion Prompts & Custom Modification Li
   assert(hoodieFit.apparelName === 'hoodie', "resolveGarmentFit('hoodie') sets apparelName = 'hoodie'");
   const hoodiePrompts = buildPromptsForConfig({ tshirtType: 'hoodie' });
   assert(hoodiePrompts[3].text.includes('hood, drawstrings, eyelets'), "Prompt 4 focuses on hood and drawstrings when hoodie is specified");
+  assert(hoodiePrompts[0].text.includes('MANDATORY GARMENT CONVERSION TO HOODIE'), "Prompt 1 explicitly commands converting to hoodie even if reference is a T-shirt");
+  assert(hoodiePrompts[0].text.includes('DO NOT generate a T-shirt'), "Prompt 1 forbids generating a T-shirt when hoodie is requested");
+  assert(hoodiePrompts[0].text.includes('long sleeves with ribbed cuffs'), "Prompt 1 requires long sleeves with ribbed cuffs for hoodie");
+  assert(maleSamePrompts[3].text.includes('DO NOT show or add any hood or drawstrings'), "Prompt 4 for 'same' fit forbids adding hood or drawstrings when reference is a T-shirt");
 
   const customJacketFit = resolveGarmentFit('varsity jacket');
   assert(customJacketFit.apparelName === 'jacket', "resolveGarmentFit('varsity jacket') detects jacket apparel");
@@ -599,6 +605,72 @@ console.log('\n[Test Suite 7] 6 Default Fashion Prompts & Custom Modification Li
   assert(queueItemFemale.config.zoomType === 'full_body' && queueItemMale.config.zoomType === 'torso_zoom', 'Queue items have distinct zoom framings');
   assert(queueItemFemale.prompts[0].text.includes('adult female'), 'Queue item 1 prompt 1 targets female model');
   assert(queueItemMale.prompts[0].text.includes('adult male'), 'Queue item 2 prompt 1 targets male model');
+
+  // 8.10 Sleeve Customization Typing Box & Default 'same' Behavior
+  const sameSleeveDefault = resolveSleeveType();
+  assert(sameSleeveDefault.isSame === true, "resolveSleeveType() defaults to isSame = true");
+  assert(sameSleeveDefault.id === 'same', "resolveSleeveType() defaults to id = 'same'");
+  assert(sameSleeveDefault.description.includes('Replicate the exact sleeve length'), "resolveSleeveType() preserves reference image sleeves");
+
+  const sameSleeveExplicit = resolveSleeveType('same');
+  assert(sameSleeveExplicit.isSame === true, "resolveSleeveType('same') isSame = true");
+
+  const longSleeve = resolveSleeveType('long');
+  assert(longSleeve.isSame === false, "resolveSleeveType('long') isSame = false");
+  assert(longSleeve.description.includes('LONG SLEEVES'), "resolveSleeveType('long') specifies LONG SLEEVES");
+
+  const shortSleeve = resolveSleeveType('short');
+  assert(shortSleeve.isSame === false, "resolveSleeveType('short') isSame = false");
+  assert(shortSleeve.description.includes('SHORT SLEEVES'), "resolveSleeveType('short') specifies SHORT SLEEVES");
+
+  const sleeveless = resolveSleeveType('sleeveless');
+  assert(sleeveless.isSame === false, "resolveSleeveType('sleeveless') isSame = false");
+  assert(sleeveless.description.includes('SLEEVELESS'), "resolveSleeveType('sleeveless') specifies SLEEVELESS");
+
+  const threeQuarter = resolveSleeveType('3/4 sleeves');
+  assert(threeQuarter.isSame === false, "resolveSleeveType('3/4 sleeves') isSame = false");
+  assert(threeQuarter.description.includes('THREE-QUARTER'), "resolveSleeveType('3/4 sleeves') specifies THREE-QUARTER sleeves");
+
+  const halfSleeves = resolveSleeveType('half sleeves');
+  assert(halfSleeves.isSame === false, "resolveSleeveType('half sleeves') isSame = false");
+  assert(halfSleeves.description.includes('HALF-LENGTH'), "resolveSleeveType('half sleeves') specifies HALF-LENGTH sleeves");
+
+  const customSleeve = resolveSleeveType('oversized drop-shoulder');
+  assert(customSleeve.isSame === false, "resolveSleeveType custom typing isSame = false");
+  assert(customSleeve.description.includes('oversized drop-shoulder'), "resolveSleeveType preserves custom typed sleeve label");
+
+  // Sleeve integration into buildPromptsForConfig
+  const promptWithLongSleeves = buildPromptsForConfig({ tshirtType: 'same', sleeveType: 'long' });
+  assert(promptWithLongSleeves[0].text.includes('MANDATORY SLEEVE CUSTOMIZATION (LONG)'), "Prompt 1 includes mandatory sleeve customization rule when not same");
+  assert(promptWithLongSleeves[0].text.includes('LONG SLEEVES'), "Prompt 1 includes LONG SLEEVES text");
+  assert(promptWithLongSleeves[2].text.includes('long sleeves'), "Prompt 3 (side view) references long sleeves");
+  assert(promptWithLongSleeves[5].text.includes('long sleeves'), "Prompt 6 (details) lists custom sleeve in bullets");
+
+  const promptWithSleeveless = buildPromptsForConfig({ tshirtType: 'hoodie', sleeveType: 'sleeveless' });
+  assert(promptWithSleeveless[0].text.includes('SLEEVELESS'), "Prompt 1 customizes hoodie sleeves to sleeveless when user types sleeveless");
+
+  // Queue Item preserves sleeveType
+  const queueItemSleeve = createQueueItem(mockFile1, 2, { modelGender: 'female', tshirtType: 'same', sleeveType: 'short', zoomType: 'medium' });
+  assert(queueItemSleeve.config.sleeveType === 'short', "Queue item captures custom sleeveType 'short'");
+  assert(queueItemSleeve.prompts[0].text.includes('SHORT SLEEVES'), "Queue item prompt 1 contains SHORT SLEEVES");
+
+  // 8.11 Print Image Zoom Presets (for Graphic Print Detail Image)
+  assert(PRINT_ZOOM_TYPES.tight && PRINT_ZOOM_TYPES.tight.id === 'tight', "PRINT_ZOOM_TYPES.tight exists");
+  assert(PRINT_ZOOM_TYPES.chest_macro && PRINT_ZOOM_TYPES.chest_macro.id === 'chest_macro', "PRINT_ZOOM_TYPES.chest_macro exists");
+  assert(PRINT_ZOOM_TYPES.extreme_macro && PRINT_ZOOM_TYPES.extreme_macro.id === 'extreme_macro', "PRINT_ZOOM_TYPES.extreme_macro exists");
+  assert(PRINT_ZOOM_TYPES.flat_lay && PRINT_ZOOM_TYPES.flat_lay.id === 'flat_lay', "PRINT_ZOOM_TYPES.flat_lay exists");
+
+  const promptWithExtremeMacro = buildPromptsForConfig({ printZoomType: 'extreme_macro' });
+  assert(promptWithExtremeMacro[4].text.includes('Ultra-tight microscopic macro zoom'), "Prompt 5 incorporates extreme macro print zoom");
+
+  const promptWithChestMacro = buildPromptsForConfig({ printZoomType: 'chest_macro' });
+  assert(promptWithChestMacro[4].text.includes('upper torso/chest graphic area'), "Prompt 5 incorporates chest macro print zoom");
+
+  // 8.12 Queue Item Custom Naming & Print Zoom State
+  const queueItemNamed = createQueueItem(mockFile1, 3, { customName: 'my_hoodie_drop', printZoomType: 'flat_lay' });
+  assert(queueItemNamed.customName === 'my_hoodie_drop', "Queue item preserves explicit customName");
+  assert(queueItemNamed.config.printZoomType === 'flat_lay', "Queue item captures printZoomType 'flat_lay'");
+  assert(queueItemNamed.prompts[4].text.includes('flat-lay product perspective'), "Queue item prompt 5 uses flat lay print zoom");
 
   // 9. Test Image Naming (name_x vs image_x_x), Same-Tab In-Place Transition & Final ZIP Packaging
   console.log('\n[Test Suite 9] Image Naming (name_x vs image_x_x), Same-Tab Transition & Final ZIP');

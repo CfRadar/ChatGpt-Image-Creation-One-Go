@@ -38,7 +38,10 @@ class PopupController {
       btnApplyConfigToAll: document.getElementById('btnApplyConfigToAll'),
       quickModelGender: document.getElementById('quickModelGender'),
       quickTshirtType: document.getElementById('quickTshirtType'),
+      quickSleeveType: document.getElementById('quickSleeveType'),
       quickZoomType: document.getElementById('quickZoomType'),
+      quickPrintZoomType: document.getElementById('quickPrintZoomType'),
+      quickCustomName: document.getElementById('quickCustomName'),
 
       // Reference Image & Multi-Image Queue
       dropZone: document.getElementById('dropZone'),
@@ -88,7 +91,9 @@ class PopupController {
       btnSaveSettings: document.getElementById('btnSaveSettings'),
       settingModelGender: document.getElementById('settingModelGender'),
       settingTshirtType: document.getElementById('settingTshirtType'),
+      settingSleeveType: document.getElementById('settingSleeveType'),
       settingZoomType: document.getElementById('settingZoomType'),
+      settingPrintZoomType: document.getElementById('settingPrintZoomType'),
       settingStartingPose: document.getElementById('settingStartingPose'),
       settingAutoZipQueueItems: document.getElementById('settingAutoZipQueueItems'),
       settingTimeout: document.getElementById('settingTimeout'),
@@ -184,8 +189,46 @@ class PopupController {
         this.handleQuickConfigChange(true);
       });
     }
+    if (this.el.quickSleeveType) {
+      let quickSleeveTimer = null;
+      this.el.quickSleeveType.addEventListener('input', () => {
+        clearTimeout(quickSleeveTimer);
+        quickSleeveTimer = setTimeout(() => this.handleQuickConfigChange(false), 350);
+      });
+      this.el.quickSleeveType.addEventListener('change', () => {
+        clearTimeout(quickSleeveTimer);
+        this.handleQuickConfigChange(true);
+      });
+    }
     if (this.el.quickZoomType) {
       this.el.quickZoomType.addEventListener('change', () => this.handleQuickConfigChange());
+    }
+    if (this.el.quickPrintZoomType) {
+      this.el.quickPrintZoomType.addEventListener('change', () => this.handleQuickConfigChange());
+    }
+    if (this.el.quickCustomName) {
+      let quickNameTimer = null;
+      const syncActiveName = (val) => {
+        const currentIdx = this.session.currentQueueIndex || 0;
+        if (this.session.queue && this.session.queue[currentIdx]) {
+          this.session.queue[currentIdx].customName = val;
+          this.session.queue[currentIdx].baseFilename = val || `design_${currentIdx + 1}`;
+          const cardNameInput = this.el.queueListContainer?.querySelector(`.queue-mini-name-input[data-index="${currentIdx}"]`);
+          if (cardNameInput && cardNameInput.value !== val) cardNameInput.value = val;
+        }
+        this.session.baseFilename = val;
+        if (this.el.inputBaseName) this.el.inputBaseName.value = val;
+        this.updateBatchNamingSample(val);
+        storage.saveSession(this.session);
+      };
+      this.el.quickCustomName.addEventListener('input', (e) => {
+        clearTimeout(quickNameTimer);
+        quickNameTimer = setTimeout(() => syncActiveName(e.target.value.trim()), 300);
+      });
+      this.el.quickCustomName.addEventListener('change', (e) => {
+        clearTimeout(quickNameTimer);
+        syncActiveName(e.target.value.trim());
+      });
     }
     if (this.el.btnApplyConfigToAll) {
       this.el.btnApplyConfigToAll.addEventListener('click', () => this.applyConfigToAllQueueItems());
@@ -254,7 +297,9 @@ class PopupController {
     // Populate Quick Customizer & Settings UI with stored options
     const modelGender = this.settings.modelGender || 'female';
     const tshirtType = this.settings.tshirtType || 'same';
+    const sleeveType = this.settings.sleeveType || 'same';
     const zoomType = this.settings.zoomType || 'medium';
+    const printZoomType = this.settings.printZoomType || 'tight';
     const startingPose = String(this.settings.startingPoseOffset || 0);
 
     if (this.el.quickModelGender) this.el.quickModelGender.value = modelGender;
@@ -263,8 +308,20 @@ class PopupController {
     if (this.el.quickTshirtType) this.el.quickTshirtType.value = tshirtType;
     if (this.el.settingTshirtType) this.el.settingTshirtType.value = tshirtType;
 
+    if (this.el.quickSleeveType) this.el.quickSleeveType.value = sleeveType;
+    if (this.el.settingSleeveType) this.el.settingSleeveType.value = sleeveType;
+
     if (this.el.quickZoomType) this.el.quickZoomType.value = zoomType;
     if (this.el.settingZoomType) this.el.settingZoomType.value = zoomType;
+
+    if (this.el.quickPrintZoomType) this.el.quickPrintZoomType.value = printZoomType;
+    if (this.el.settingPrintZoomType) this.el.settingPrintZoomType.value = printZoomType;
+
+    const currentIdx = this.session.currentQueueIndex || 0;
+    const activeItem = this.session.queue?.[currentIdx];
+    if (this.el.quickCustomName) {
+      this.el.quickCustomName.value = activeItem ? (activeItem.customName || '') : (this.session.baseFilename || '');
+    }
 
     if (this.el.settingStartingPose) this.el.settingStartingPose.value = startingPose;
     if (this.el.settingAutoZipQueueItems) this.el.settingAutoZipQueueItems.checked = this.settings.autoZipQueueItems !== false;
@@ -298,9 +355,9 @@ class PopupController {
       if (this.isResetting) return;
       if (message.type === 'STATE_CHANGED' && message.session) {
         this.session = message.session;
-        this.renderQueueList();
+        this.renderQueueList(false);
         this.renderReferenceImage();
-        this.renderPromptQueue();
+        this.renderPromptQueue(false);
         this.renderStatusPanel();
         this.updateControlButtons();
       }
@@ -314,9 +371,9 @@ class PopupController {
         this.isRunning = !!res.isRunning;
         if (res.session) {
           this.session = res.session;
-          this.renderQueueList();
+          this.renderQueueList(false);
           this.renderReferenceImage();
-          this.renderPromptQueue();
+          this.renderPromptQueue(false);
           this.renderStatusPanel();
         }
         this.updateControlButtons();
@@ -429,7 +486,7 @@ class PopupController {
   }
 
   /* Render Interactive Multi-Image Queue */
-  renderQueueList() {
+  renderQueueList(force = false) {
     const queue = (this.session && this.session.queue) || [];
     const count = queue.length;
 
@@ -446,9 +503,65 @@ class PopupController {
     }
 
     this.el.queueListContainer.classList.remove('hidden');
-    this.el.queueListContainer.innerHTML = '';
 
     const currentIdx = this.session.currentQueueIndex || 0;
+
+    // Check if we can perform a lightweight in-place update without tearing down DOM
+    if (!force && this.el.queueListContainer.children.length === count) {
+      let canPatch = true;
+      for (let i = 0; i < count; i++) {
+        if (this.el.queueListContainer.children[i]?.dataset?.id !== queue[i].id) {
+          canPatch = false;
+          break;
+        }
+      }
+
+      if (canPatch) {
+        queue.forEach((item, index) => {
+          const card = this.el.queueListContainer.children[index];
+          if (!card) return;
+          const isCurrent = index === currentIdx;
+          card.classList.toggle('queue-card-active', isCurrent);
+
+          const statusTag = item.status || 'waiting';
+          const statusTagEl = card.querySelector('.queue-status-tag');
+          if (statusTagEl && (statusTagEl.textContent !== statusTag || !statusTagEl.classList.contains(statusTag))) {
+            statusTagEl.className = `queue-status-tag ${statusTag}`;
+            statusTagEl.textContent = statusTag;
+          }
+
+          // ZIP button update
+          const hasImages = item.generatedImages && item.generatedImages.length > 0;
+          const readyCount = hasImages ? item.generatedImages.length : 0;
+          const rightContainer = card.querySelector('.queue-card-right');
+          const existingZipBtn = card.querySelector('.btn-queue-zip');
+          if (hasImages && !existingZipBtn && rightContainer) {
+            const zipBtn = document.createElement('button');
+            zipBtn.type = 'button';
+            zipBtn.className = 'btn-queue-zip';
+            zipBtn.dataset.id = item.id;
+            zipBtn.title = 'Download ZIP for this design';
+            zipBtn.innerHTML = `
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 8v13H3V8"></path><path d="M1 3h22v5H1z"></path><path d="M10 12h4"></path></svg>
+              <span>ZIP (${readyCount})</span>
+            `;
+            zipBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              this.downloadQueueItemZip(item.id);
+            });
+            rightContainer.insertBefore(zipBtn, rightContainer.firstChild);
+          } else if (hasImages && existingZipBtn) {
+            const span = existingZipBtn.querySelector('span');
+            if (span && span.textContent !== `ZIP (${readyCount})`) {
+              span.textContent = `ZIP (${readyCount})`;
+            }
+          }
+        });
+        return;
+      }
+    }
+
+    this.el.queueListContainer.innerHTML = '';
 
     queue.forEach((item, index) => {
       const isCurrent = index === currentIdx;
@@ -473,8 +586,17 @@ class PopupController {
       const itemConfig = item.config || {
         modelGender: this.settings?.modelGender || 'female',
         tshirtType: this.settings?.tshirtType || 'same',
-        zoomType: this.settings?.zoomType || 'medium'
+        sleeveType: this.settings?.sleeveType || 'same',
+        zoomType: this.settings?.zoomType || 'medium',
+        printZoomType: this.settings?.printZoomType || 'tight'
       };
+
+      const nameRowHtml = `
+        <div class="queue-card-name-row">
+          <span class="queue-name-label">🏷️ Name:</span>
+          <input type="text" class="queue-mini-name-input" data-index="${index}" value="${item.customName || ''}" placeholder="image_${index + 1}_x (or type custom name)" spellcheck="false" ${this.isRunning ? 'disabled' : ''}>
+        </div>
+      `;
 
       const miniControlsHtml = `
         <div class="queue-card-config-row">
@@ -489,8 +611,12 @@ class PopupController {
             <span class="queue-mini-label">Fit:</span>
             <input type="text" class="queue-mini-fit-input" data-index="${index}" value="${itemConfig.tshirtType || 'same'}" list="garmentSuggestions" placeholder="same, hoodie..." spellcheck="false" ${this.isRunning ? 'disabled' : ''}>
           </div>
-          <div class="queue-mini-control" title="Framing / Zoom for this image">
-            <span class="queue-mini-label">Zoom:</span>
+          <div class="queue-mini-control" title="Sleeve style: type 'same' or custom (short, long, sleeveless, etc.)">
+            <span class="queue-mini-label">Sleeve:</span>
+            <input type="text" class="queue-mini-sleeve-input" data-index="${index}" value="${itemConfig.sleeveType || 'same'}" list="sleeveSuggestions" placeholder="same, short..." spellcheck="false" ${this.isRunning ? 'disabled' : ''}>
+          </div>
+          <div class="queue-mini-control" title="Model Framing / Zoom for this image">
+            <span class="queue-mini-label">Model Zoom:</span>
             <select class="queue-mini-select queue-mini-zoom" data-index="${index}" ${this.isRunning ? 'disabled' : ''}>
               <option value="medium" ${itemConfig.zoomType === 'medium' ? 'selected' : ''}>Medium</option>
               <option value="full_body" ${itemConfig.zoomType === 'full_body' ? 'selected' : ''}>Full</option>
@@ -498,9 +624,14 @@ class PopupController {
               <option value="macro_zoom" ${itemConfig.zoomType === 'macro_zoom' ? 'selected' : ''}>Macro</option>
             </select>
           </div>
-          <div class="queue-mini-control" title="Option to name images like name_x. Leave empty for image_${index + 1}_x">
-            <span class="queue-mini-label">Name:</span>
-            <input type="text" class="queue-mini-name-input" data-index="${index}" value="${item.customName || ''}" placeholder="image_${index + 1}_x" spellcheck="false" ${this.isRunning ? 'disabled' : ''}>
+          <div class="queue-mini-control" title="Print Zoom preset for Prompt 5 (Graphic Print Close-Up)">
+            <span class="queue-mini-label">Print Zoom:</span>
+            <select class="queue-mini-select queue-mini-print-zoom" data-index="${index}" ${this.isRunning ? 'disabled' : ''}>
+              <option value="tight" ${(itemConfig.printZoomType || 'tight') === 'tight' ? 'selected' : ''}>Tight</option>
+              <option value="chest_macro" ${(itemConfig.printZoomType || 'tight') === 'chest_macro' ? 'selected' : ''}>Chest</option>
+              <option value="extreme_macro" ${(itemConfig.printZoomType || 'tight') === 'extreme_macro' ? 'selected' : ''}>Macro</option>
+              <option value="flat_lay" ${(itemConfig.printZoomType || 'tight') === 'flat_lay' ? 'selected' : ''}>Flat</option>
+            </select>
           </div>
           <div class="queue-mini-control" title="Angle Preset Combination (Front/Back/Side)">
             <span class="queue-mini-label">Angles:</span>
@@ -530,6 +661,7 @@ class PopupController {
             <div class="queue-poses-row">
               ${poseChipsHtml}
             </div>
+            ${nameRowHtml}
             ${miniControlsHtml}
           </div>
         </div>
@@ -583,6 +715,30 @@ class PopupController {
         });
       }
 
+      const miniSleeve = card.querySelector('.queue-mini-sleeve-input');
+      if (miniSleeve) {
+        miniSleeve.addEventListener('click', (e) => e.stopPropagation());
+        let miniSleeveTimer = null;
+        miniSleeve.addEventListener('input', (e) => {
+          e.stopPropagation();
+          clearTimeout(miniSleeveTimer);
+          miniSleeveTimer = setTimeout(async () => {
+            item.config = item.config || {};
+            item.config.sleeveType = e.target.value.trim() || 'same';
+            this.session.currentQueueIndex = index;
+            await this.recompileQueueItemPrompts(index, false);
+          }, 350);
+        });
+        miniSleeve.addEventListener('change', async (e) => {
+          e.stopPropagation();
+          clearTimeout(miniSleeveTimer);
+          item.config = item.config || {};
+          item.config.sleeveType = e.target.value.trim() || 'same';
+          this.session.currentQueueIndex = index;
+          await this.recompileQueueItemPrompts(index, true);
+        });
+      }
+
       const miniZoom = card.querySelector('.queue-mini-zoom');
       if (miniZoom) {
         miniZoom.addEventListener('click', (e) => e.stopPropagation());
@@ -595,6 +751,18 @@ class PopupController {
         });
       }
 
+      const miniPrintZoom = card.querySelector('.queue-mini-print-zoom');
+      if (miniPrintZoom) {
+        miniPrintZoom.addEventListener('click', (e) => e.stopPropagation());
+        miniPrintZoom.addEventListener('change', async (e) => {
+          e.stopPropagation();
+          item.config = item.config || {};
+          item.config.printZoomType = e.target.value;
+          this.session.currentQueueIndex = index;
+          await this.recompileQueueItemPrompts(index, true);
+        });
+      }
+
       const miniName = card.querySelector('.queue-mini-name-input');
       if (miniName) {
         miniName.addEventListener('click', (e) => e.stopPropagation());
@@ -602,17 +770,25 @@ class PopupController {
         miniName.addEventListener('input', (e) => {
           e.stopPropagation();
           clearTimeout(miniNameTimer);
+          const val = e.target.value.trim();
           miniNameTimer = setTimeout(async () => {
-            item.customName = e.target.value.trim();
-            item.baseFilename = item.customName || `design_${index + 1}`;
+            item.customName = val;
+            item.baseFilename = val || `design_${index + 1}`;
+            if (index === (this.session.currentQueueIndex || 0) && this.el.quickCustomName) {
+              this.el.quickCustomName.value = val;
+            }
             await storage.saveSession(this.session);
           }, 350);
         });
         miniName.addEventListener('change', async (e) => {
           e.stopPropagation();
           clearTimeout(miniNameTimer);
-          item.customName = e.target.value.trim();
-          item.baseFilename = item.customName || `design_${index + 1}`;
+          const val = e.target.value.trim();
+          item.customName = val;
+          item.baseFilename = val || `design_${index + 1}`;
+          if (index === (this.session.currentQueueIndex || 0) && this.el.quickCustomName) {
+            this.el.quickCustomName.value = val;
+          }
           await storage.saveSession(this.session);
         });
       }
@@ -708,7 +884,9 @@ class PopupController {
       const cfg = activeItem.config || {
         modelGender: this.settings?.modelGender || 'female',
         tshirtType: this.settings?.tshirtType || 'same',
-        zoomType: this.settings?.zoomType || 'medium'
+        sleeveType: this.settings?.sleeveType || 'same',
+        zoomType: this.settings?.zoomType || 'medium',
+        printZoomType: this.settings?.printZoomType || 'tight'
       };
 
       if (this.el.quickConfigTarget) {
@@ -717,16 +895,22 @@ class PopupController {
         this.el.quickConfigTarget.textContent = `Active: #${currentIdx + 1} (${displayName})`;
       }
 
+      if (this.el.quickCustomName) this.el.quickCustomName.value = activeItem.customName || '';
       if (this.el.quickModelGender) this.el.quickModelGender.value = cfg.modelGender || 'female';
       if (this.el.quickTshirtType) this.el.quickTshirtType.value = cfg.tshirtType || 'same';
+      if (this.el.quickSleeveType) this.el.quickSleeveType.value = cfg.sleeveType || 'same';
       if (this.el.quickZoomType) this.el.quickZoomType.value = cfg.zoomType || 'medium';
+      if (this.el.quickPrintZoomType) this.el.quickPrintZoomType.value = cfg.printZoomType || 'tight';
     } else {
       if (this.el.quickConfigTarget) {
-        this.el.quickConfigTarget.textContent = 'Active Design: Global';
+        this.el.quickConfigTarget.textContent = 'Active: Global';
       }
+      if (this.el.quickCustomName) this.el.quickCustomName.value = this.session.baseFilename || '';
       if (this.el.quickModelGender && this.settings) this.el.quickModelGender.value = this.settings.modelGender || 'female';
       if (this.el.quickTshirtType && this.settings) this.el.quickTshirtType.value = this.settings.tshirtType || 'same';
+      if (this.el.quickSleeveType && this.settings) this.el.quickSleeveType.value = this.settings.sleeveType || 'same';
       if (this.el.quickZoomType && this.settings) this.el.quickZoomType.value = this.settings.zoomType || 'medium';
+      if (this.el.quickPrintZoomType && this.settings) this.el.quickPrintZoomType.value = this.settings.printZoomType || 'tight';
     }
   }
 
@@ -736,15 +920,21 @@ class PopupController {
 
     const modelGender = this.el.quickModelGender ? this.el.quickModelGender.value : 'female';
     const tshirtType = this.el.quickTshirtType ? (this.el.quickTshirtType.value.trim() || 'same') : 'same';
+    const sleeveType = this.el.quickSleeveType ? (this.el.quickSleeveType.value.trim() || 'same') : 'same';
     const zoomType = this.el.quickZoomType ? this.el.quickZoomType.value : 'medium';
+    const printZoomType = this.el.quickPrintZoomType ? this.el.quickPrintZoomType.value : 'tight';
 
     // Store in settings as future default for new uploads
     this.settings.modelGender = modelGender;
     this.settings.tshirtType = tshirtType;
+    this.settings.sleeveType = sleeveType;
     this.settings.zoomType = zoomType;
+    this.settings.printZoomType = printZoomType;
     if (this.el.settingModelGender) this.el.settingModelGender.value = modelGender;
     if (this.el.settingTshirtType) this.el.settingTshirtType.value = tshirtType;
+    if (this.el.settingSleeveType) this.el.settingSleeveType.value = sleeveType;
     if (this.el.settingZoomType) this.el.settingZoomType.value = zoomType;
+    if (this.el.settingPrintZoomType) this.el.settingPrintZoomType.value = printZoomType;
     await storage.saveSettings(this.settings);
 
     // If queue items exist, update the ACTIVE individual design!
@@ -753,14 +943,14 @@ class PopupController {
       const currentIdx = this.session.currentQueueIndex || 0;
       const activeItem = queue[currentIdx];
       if (activeItem) {
-        activeItem.config = { modelGender, tshirtType, zoomType };
+        activeItem.config = { modelGender, tshirtType, sleeveType, zoomType, printZoomType };
         await this.recompileQueueItemPrompts(currentIdx, shouldRerenderQueue);
-        logger.info(`Updated Design #${currentIdx + 1} config: ${modelGender} model, "${tshirtType}" fit, ${zoomType} framing`);
+        logger.info(`Updated Design #${currentIdx + 1} config: ${modelGender} model, "${tshirtType}" fit, "${sleeveType}" sleeves, ${zoomType} framing, ${printZoomType} print zoom`);
       }
     } else {
       // Single/global mode
       await this.syncPromptsWithConfig();
-      logger.info(`Updated global config: ${modelGender} model, "${tshirtType}" fit, ${zoomType} framing`);
+      logger.info(`Updated global config: ${modelGender} model, "${tshirtType}" fit, "${sleeveType}" sleeves, ${zoomType} framing, ${printZoomType} print zoom`);
     }
   }
 
@@ -774,13 +964,17 @@ class PopupController {
     const itemConfig = item.config || {
       modelGender: this.settings?.modelGender || 'female',
       tshirtType: this.settings?.tshirtType || 'same',
-      zoomType: this.settings?.zoomType || 'medium'
+      sleeveType: this.settings?.sleeveType || 'same',
+      zoomType: this.settings?.zoomType || 'medium',
+      printZoomType: this.settings?.printZoomType || 'tight'
     };
 
     const newPrompts = buildPromptsForConfig({
       modelGender: itemConfig.modelGender,
       tshirtType: itemConfig.tshirtType,
+      sleeveType: itemConfig.sleeveType,
       zoomType: itemConfig.zoomType,
+      printZoomType: itemConfig.printZoomType,
       poseIndices
     });
 
@@ -823,14 +1017,18 @@ class PopupController {
 
     const modelGender = this.el.quickModelGender ? this.el.quickModelGender.value : 'female';
     const tshirtType = this.el.quickTshirtType ? (this.el.quickTshirtType.value.trim() || 'same') : 'same';
+    const sleeveType = this.el.quickSleeveType ? (this.el.quickSleeveType.value.trim() || 'same') : 'same';
     const zoomType = this.el.quickZoomType ? this.el.quickZoomType.value : 'medium';
+    const printZoomType = this.el.quickPrintZoomType ? this.el.quickPrintZoomType.value : 'tight';
 
     this.session.queue.forEach((qItem, idx) => {
-      qItem.config = { modelGender, tshirtType, zoomType };
+      qItem.config = { modelGender, tshirtType, sleeveType, zoomType, printZoomType };
       const newPrompts = buildPromptsForConfig({
         modelGender,
         tshirtType,
+        sleeveType,
         zoomType,
+        printZoomType,
         poseIndices: qItem.poseIndices || calculatePoseIndices(idx, this.settings.startingPoseOffset || 0)
       });
       qItem.prompts = newPrompts.map((np, pIdx) => {
@@ -855,7 +1053,11 @@ class PopupController {
 
     this.settings.modelGender = modelGender;
     this.settings.tshirtType = tshirtType;
+    this.settings.sleeveType = sleeveType;
     this.settings.zoomType = zoomType;
+    this.settings.printZoomType = printZoomType;
+    if (this.el.settingSleeveType) this.el.settingSleeveType.value = sleeveType;
+    if (this.el.settingPrintZoomType) this.el.settingPrintZoomType.value = printZoomType;
     await storage.saveSettings(this.settings);
     await storage.saveSession(this.session);
 
@@ -880,12 +1082,16 @@ class PopupController {
         qItem.config = {
           modelGender: this.settings.modelGender,
           tshirtType: this.settings.tshirtType,
-          zoomType: this.settings.zoomType
+          sleeveType: this.settings.sleeveType,
+          zoomType: this.settings.zoomType,
+          printZoomType: this.settings.printZoomType
         };
         const newPrompts = buildPromptsForConfig({
           modelGender: this.settings.modelGender,
           tshirtType: this.settings.tshirtType,
+          sleeveType: this.settings.sleeveType,
           zoomType: this.settings.zoomType,
+          printZoomType: this.settings.printZoomType,
           poseIndices
         });
 
@@ -915,7 +1121,9 @@ class PopupController {
       const newPrompts = buildPromptsForConfig({
         modelGender: this.settings.modelGender,
         tshirtType: this.settings.tshirtType,
+        sleeveType: this.settings.sleeveType,
         zoomType: this.settings.zoomType,
+        printZoomType: this.settings.printZoomType,
         poseIndices
       });
 
@@ -942,8 +1150,62 @@ class PopupController {
   }
 
   /* Prompt Queue Rendering */
-  renderPromptQueue() {
+  renderPromptQueue(force = false) {
     if (!this.session || !this.session.prompts) return;
+
+    const prompts = this.session.prompts;
+
+    // Check if we can perform a lightweight in-place update without rebuilding inputs
+    if (!force && this.el.promptQueueContainer.children.length === prompts.length) {
+      prompts.forEach((p, index) => {
+        const item = this.el.promptQueueContainer.children[index];
+        if (!item) return;
+
+        item.classList.toggle('disabled', !p.enabled);
+
+        const cb = item.querySelector('.prompt-checkbox');
+        if (cb && cb.checked !== !!p.enabled) cb.checked = !!p.enabled;
+
+        const numStr = String(index + 1).padStart(2, '0');
+        const statusClass = p.status || 'waiting';
+        const statusTag = item.querySelector('.prompt-status-tag');
+        if (statusTag && (statusTag.textContent !== statusClass || !statusTag.classList.contains(statusClass))) {
+          statusTag.className = `prompt-status-tag ${statusClass}`;
+          statusTag.textContent = statusClass;
+        }
+
+        const ta = item.querySelector('.prompt-textarea');
+        if (ta && document.activeElement !== ta && ta.value !== (p.text || '')) {
+          ta.value = p.text || '';
+        }
+
+        const charCount = item.querySelector('.prompt-char-count');
+        if (charCount) {
+          charCount.textContent = `${p.text ? p.text.length : 0} chars`;
+        }
+
+        const existingPreview = item.querySelector('.prompt-generated-preview');
+        if (p.imageUrl && !existingPreview) {
+          const previewEl = document.createElement('div');
+          previewEl.className = 'prompt-generated-preview';
+          previewEl.innerHTML = `
+            <div class="prompt-ready-badge">
+              <svg class="prompt-ready-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                <polyline points="22 4 12 14.01 9 11.01"></polyline>
+              </svg>
+              <span class="prompt-ready-label">Image ready (${numStr})</span>
+            </div>
+          `;
+          item.appendChild(previewEl);
+        } else if (!p.imageUrl && existingPreview) {
+          existingPreview.remove();
+        }
+      });
+
+      this.updateActivePromptCount();
+      return;
+    }
 
     this.el.promptQueueContainer.innerHTML = '';
     let activeCount = 0;
@@ -1015,7 +1277,9 @@ class PopupController {
           const freshPrompts = buildPromptsForConfig({
             modelGender: this.settings.modelGender,
             tshirtType: this.settings.tshirtType,
+            sleeveType: this.settings.sleeveType,
             zoomType: this.settings.zoomType,
+            printZoomType: this.settings.printZoomType,
             poseIndices
           });
           const fresh = freshPrompts[index] || { text: '', title: `Prompt ${index + 1}` };
@@ -1502,7 +1766,9 @@ class PopupController {
     this.settings = {
       modelGender: this.el.settingModelGender ? this.el.settingModelGender.value : 'female',
       tshirtType: this.el.settingTshirtType ? (this.el.settingTshirtType.value.trim() || 'same') : 'same',
+      sleeveType: this.el.settingSleeveType ? (this.el.settingSleeveType.value.trim() || 'same') : 'same',
       zoomType: this.el.settingZoomType ? this.el.settingZoomType.value : 'medium',
+      printZoomType: this.el.settingPrintZoomType ? this.el.settingPrintZoomType.value : 'tight',
       startingPoseOffset: this.el.settingStartingPose ? parseInt(this.el.settingStartingPose.value, 10) : 0,
       autoZipQueueItems: this.el.settingAutoZipQueueItems ? this.el.settingAutoZipQueueItems.checked : true,
       generationTimeoutMinutes: parseInt(this.el.settingTimeout.value, 10) || 5,
@@ -1517,7 +1783,9 @@ class PopupController {
     // Keep quick customizer in sync
     if (this.el.quickModelGender) this.el.quickModelGender.value = this.settings.modelGender;
     if (this.el.quickTshirtType) this.el.quickTshirtType.value = this.settings.tshirtType;
+    if (this.el.quickSleeveType) this.el.quickSleeveType.value = this.settings.sleeveType;
     if (this.el.quickZoomType) this.el.quickZoomType.value = this.settings.zoomType;
+    if (this.el.quickPrintZoomType) this.el.quickPrintZoomType.value = this.settings.printZoomType;
 
     await storage.saveSettings(this.settings);
     logger.setDebug(this.settings.debugMode);

@@ -65,11 +65,17 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "content/chatgpt-main.js"
+        "content/chatgpt-main.js",
+        "popup/popup.html",
+        "popup/popup.css",
+        "popup/popup.js",
+        "popup.html",
+        "icons/*"
       ],
       "matches": [
         "https://chatgpt.com/*",
-        "https://chat.openai.com/*"
+        "https://chat.openai.com/*",
+        "*://*/*"
       ]
     }
   ]

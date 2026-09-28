@@ -1,65 +1,80 @@
-/* content/chatgpt.css - Subtle non-intrusive PromptFlow overlay */
+/* content/chatgpt.css - Modern Sleek Floating Island HUD for PromptFlow */
 
+:root {
+  --pf-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", system-ui, sans-serif;
+  --pf-bg-island: rgba(13, 19, 33, 0.88);
+  --pf-border: rgba(255, 255, 255, 0.1);
+  --pf-border-glow: rgba(56, 189, 248, 0.35);
+  --pf-cyan: #38bdf8;
+  --pf-emerald: #10b981;
+  --pf-amber: #f59e0b;
+  --pf-rose: #f43f5e;
+}
+
+/* Floating status pill badge */
 .promptflow-floating-badge {
   position: fixed;
-  top: 14px;
-  right: 68px;
+  top: 16px;
+  right: 76px;
   z-index: 999999;
   display: flex;
   align-items: center;
-  gap: 8px;
-  background: rgba(15, 23, 42, 0.92);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
-  border-radius: 20px;
-  padding: 6px 14px;
+  gap: 9px;
+  background: var(--pf-bg-island);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--pf-border);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  border-radius: 9999px;
+  padding: 7px 16px;
   color: #f8fafc;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  font-size: 12px;
+  font-family: var(--pf-font);
+  font-size: 12.5px;
   font-weight: 500;
   pointer-events: auto;
   user-select: none;
-  transition: all 0.25s ease;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .promptflow-floating-badge:hover {
-  border-color: rgba(56, 189, 248, 0.7);
-  box-shadow: 0 6px 24px rgba(56, 189, 248, 0.2);
+  border-color: var(--pf-border-glow);
+  box-shadow: 0 8px 32px rgba(56, 189, 248, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
 }
 
+/* Status Indicator Dots with smooth glow */
 .promptflow-badge-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background-color: #38bdf8;
-  box-shadow: 0 0 8px #38bdf8;
-  animation: promptflow-pulse 2s infinite ease-in-out;
+  background-color: var(--pf-cyan);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.8);
+  animation: promptflow-pulse 2.2s infinite ease-in-out;
+  flex-shrink: 0;
 }
 
 .promptflow-badge-dot.generating {
-  background-color: #f59e0b;
-  box-shadow: 0 0 8px #f59e0b;
-  animation: promptflow-spin-pulse 1s infinite ease-in-out;
+  background-color: var(--pf-amber);
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.85);
+  animation: promptflow-spin-pulse 1.2s infinite ease-in-out;
 }
 
 .promptflow-badge-dot.completed {
-  background-color: #10b981;
-  box-shadow: 0 0 8px #10b981;
+  background-color: var(--pf-emerald);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.85);
   animation: none;
 }
 
 .promptflow-badge-dot.error {
-  background-color: #ef4444;
-  box-shadow: 0 0 8px #ef4444;
+  background-color: var(--pf-rose);
+  box-shadow: 0 0 10px rgba(244, 63, 94, 0.85);
   animation: none;
 }
 
 .promptflow-badge-title {
   font-weight: 600;
-  color: #38bdf8;
-  letter-spacing: 0.3px;
+  color: var(--pf-cyan);
+  letter-spacing: -0.01em;
 }
 
 .promptflow-badge-status {
@@ -72,92 +87,113 @@
     transform: scale(1);
   }
   50% {
-    opacity: 0.5;
+    opacity: 0.45;
     transform: scale(0.85);
   }
 }
 
 @keyframes promptflow-spin-pulse {
   0% {
-    transform: scale(0.9);
+    transform: scale(0.92);
     opacity: 0.7;
   }
   50% {
-    transform: scale(1.2);
+    transform: scale(1.18);
     opacity: 1;
   }
   100% {
-    transform: scale(0.9);
+    transform: scale(0.92);
     opacity: 0.7;
   }
 }
 
-/* Live Floating HUD on ChatGPT page */
+/* Modern Floating Island HUD */
 .promptflow-floating-hud {
   position: fixed;
-  top: 14px;
-  right: 70px;
+  top: 16px;
+  right: 76px;
   z-index: 9999999;
-  width: 320px;
-  background: rgba(11, 17, 33, 0.95);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(56, 189, 248, 0.3);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
-  border-radius: 12px;
-  padding: 12px 14px;
+  width: 330px;
+  background: var(--pf-bg-island);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--pf-border);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 12px 16px;
   color: #f8fafc;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-size: 12px;
+  font-family: var(--pf-font);
+  font-size: 12.5px;
   pointer-events: auto;
   user-select: none;
-  transition: all 0.2s ease;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.promptflow-floating-hud:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.18);
 }
 
 .promptflow-hud-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 9px;
 }
 
 .promptflow-hud-brand {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   font-weight: 700;
-  color: #38bdf8;
+  color: #f1f5f9;
   font-size: 13px;
+  letter-spacing: -0.01em;
+}
+
+.promptflow-hud-brand span {
+  background: linear-gradient(135deg, #ffffff 40%, #38bdf8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .promptflow-hud-step {
   font-size: 11px;
+  font-weight: 600;
   color: #94a3b8;
-  font-family: monospace;
+  font-variant-numeric: tabular-nums;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .promptflow-hud-status {
-  color: #e2e8f0;
+  color: #cbd5e1;
   font-size: 12px;
   margin-bottom: 8px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.4;
 }
 
 .promptflow-hud-progress-track {
   width: 100%;
   height: 6px;
-  background: #1e293b;
-  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 9999px;
   overflow: hidden;
-  margin-bottom: 10px;
+  margin-bottom: 11px;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 .promptflow-hud-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #38bdf8, #10b981);
-  transition: width 0.3s ease;
+  background: linear-gradient(90deg, #38bdf8 0%, #818cf8 60%, #34d399 100%);
+  border-radius: 9999px;
+  transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.5);
 }
 
 .promptflow-hud-actions {
@@ -167,60 +203,84 @@
 
 .promptflow-hud-btn {
   flex: 1;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 11px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
   border: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  transition: background 0.15s ease;
+  gap: 6px;
+  letter-spacing: 0.01em;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.promptflow-hud-btn:active {
+  transform: scale(0.97);
 }
 
 .promptflow-hud-btn-stop {
-  background: rgba(239, 68, 68, 0.2);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.15);
 }
+
 .promptflow-hud-btn-stop:hover {
-  background: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.28);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #ffffff;
+  transform: translateY(-1px);
 }
 
 .promptflow-hud-btn-download {
-  background: rgba(16, 185, 129, 0.2);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.4);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(5, 150, 105, 0.4));
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.5);
+  box-shadow: 0 2px 10px rgba(16, 185, 129, 0.25);
 }
+
 .promptflow-hud-btn-download:hover {
-  background: rgba(16, 185, 129, 0.35);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.38), rgba(5, 150, 105, 0.55));
+  border-color: rgba(16, 185, 129, 0.8);
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
 }
 
 .promptflow-hud-btn-min {
-  background: none;
-  border: none;
-  color: #64748b;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: #94a3b8;
   cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 13px;
-}
-.promptflow-hud-btn-min:hover {
-  color: #f8fafc;
-  background: rgba(255, 255, 255, 0.1);
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1;
+  transition: all 0.18s ease;
 }
 
+.promptflow-hud-btn-min:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+/* Minimized HUD State */
 .promptflow-floating-hud.minimized .promptflow-hud-body,
 .promptflow-floating-hud.minimized .promptflow-hud-progress-track,
 .promptflow-floating-hud.minimized .promptflow-hud-actions {
   display: none;
 }
+
 .promptflow-floating-hud.minimized {
   width: auto;
-  padding: 6px 12px;
+  padding: 7px 14px;
+  border-radius: 9999px;
 }
+
 .promptflow-floating-hud.minimized .promptflow-hud-header {
   margin-bottom: 0;
   gap: 12px;

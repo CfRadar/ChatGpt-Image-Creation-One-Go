@@ -56,8 +56,12 @@
       <section class="card section-quick-config">
         <div class="config-bar-header">
           <div class="config-bar-title">
-            <span>CUSTOMIZER</span>
-            <span id="quickConfigTarget" class="badge-target">Active Design: #1</span>
+            <span class="pixel-tag">CUSTOMIZER</span>
+            <span id="quickConfigTarget" class="badge-target">Active: #1</span>
+          </div>
+          <div class="quick-name-container" title="Custom name for this image (e.g. name_x)">
+            <span class="quick-name-label">🏷️ Name:</span>
+            <input type="text" id="quickCustomName" class="quick-name-input" placeholder="e.g. summer_drop_1" spellcheck="false">
           </div>
           <button type="button" id="btnApplyConfigToAll" class="btn-text-sm" title="Apply these settings to all designs in queue">Sync to All Images</button>
         </div>
@@ -94,15 +98,47 @@
             </div>
           </div>
 
-          <!-- Framing / Zoom -->
+          <!-- Sleeve Customization Typebox -->
           <div class="config-item">
-            <label class="config-label" for="quickZoomType">Framing / Zoom</label>
+            <label class="config-label" for="quickSleeveType" title="Type 'same' to match reference sleeves, or 'short', 'long', 'sleeveless', etc.">Sleeves (Typebox)</label>
+            <div class="input-wrapper">
+              <input type="text" id="quickSleeveType" class="config-input" list="sleeveSuggestions" placeholder="e.g. same, short, long" value="same" autocomplete="off" spellcheck="false">
+              <datalist id="sleeveSuggestions">
+                <option value="same">Same as Reference (Preserve image sleeves)</option>
+                <option value="short">Short Sleeves (Classic mid-bicep)</option>
+                <option value="long">Long Sleeves (Wrist length with cuffs)</option>
+                <option value="sleeveless">Sleeveless / Tank Cut (No sleeves)</option>
+                <option value="half sleeves">Half Sleeves (Relaxed elbow drop)</option>
+                <option value="3/4 sleeves">3/4 Sleeves (Below elbow cut)</option>
+                <option value="oversized drop-shoulder">Oversized Drop-Shoulder Sleeves</option>
+                <option value="raglan">Raglan Sleeves</option>
+                <option value="rolled">Rolled Cuffs Sleeves</option>
+              </datalist>
+            </div>
+          </div>
+
+          <!-- Framing / Model Zoom -->
+          <div class="config-item">
+            <label class="config-label" for="quickZoomType" title="Model portrait distance & framing">Model Zoom</label>
             <div class="select-wrapper">
               <select id="quickZoomType" class="config-select">
                 <option value="medium">Medium (Head-to-Thigh)</option>
                 <option value="full_body">Full Body Shot</option>
                 <option value="torso_zoom">Torso Zoomed</option>
                 <option value="macro_zoom">Extreme Macro</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Print Zoom Preset -->
+          <div class="config-item">
+            <label class="config-label" for="quickPrintZoomType" title="Zoom preset for Prompt 5 (Graphic Print Close-Up)">Print Zoom</label>
+            <div class="select-wrapper">
+              <select id="quickPrintZoomType" class="config-select">
+                <option value="tight">Tight Graphic Crop</option>
+                <option value="chest_macro">Chest & Graphic View</option>
+                <option value="extreme_macro">Extreme Macro Ink</option>
+                <option value="flat_lay">Flat Lay Graphic</option>
               </select>
             </div>
           </div>
@@ -311,16 +347,35 @@
           <span class="setting-hint">Type "same" to match reference garment (hoodie, t-shirt, jacket, etc.) exactly. Or specify custom apparel.</span>
         </div>
 
-        <!-- Framing / Zoom -->
+        <!-- Sleeve Customization Typebox -->
         <div class="setting-group">
-          <label for="settingZoomType">Framing / Zoom Level</label>
+          <label for="settingSleeveType">Sleeve Style (Typebox)</label>
+          <input type="text" id="settingSleeveType" list="sleeveSuggestions" placeholder="e.g. same, short, long" value="same">
+          <span class="setting-hint">Type "same" to preserve sleeves from the reference image, or customize sleeve length (short, long, sleeveless, 3/4, etc.).</span>
+        </div>
+
+        <!-- Model Framing / Zoom -->
+        <div class="setting-group">
+          <label for="settingZoomType">Model Framing / Zoom Level</label>
           <select id="settingZoomType">
             <option value="medium">Medium Shot (Head to mid-thigh portrait)</option>
             <option value="full_body">Full Body Shot (Head to toe with sneakers)</option>
             <option value="torso_zoom">Torso Zoomed (Shoulders to waistline)</option>
             <option value="macro_zoom">Extreme Macro (Ultra close fabric & print texture)</option>
           </select>
-          <span class="setting-hint">Camera framing distance for fashion shots.</span>
+          <span class="setting-hint">Camera framing distance for model fashion shots (Prompts 1, 2, 3).</span>
+        </div>
+
+        <!-- Graphic Print Zoom Preset -->
+        <div class="setting-group">
+          <label for="settingPrintZoomType">Graphic Print Zoom Preset</label>
+          <select id="settingPrintZoomType">
+            <option value="tight">Tight Graphic Crop (Focused on artwork boundaries)</option>
+            <option value="chest_macro">Chest & Graphic View (Artwork with chest & collar context)</option>
+            <option value="extreme_macro">Extreme Macro (Microscopic ink texture & fabric weave)</option>
+            <option value="flat_lay">Flat Lay Graphic (Crisp unwrinkled flat front)</option>
+          </select>
+          <span class="setting-hint">Framing distance and perspective for Prompt 5 (Graphic Print Close-Up).</span>
         </div>
 
         <!-- Starting Pose Preset Set -->
