@@ -85,21 +85,37 @@
       composer.dispatchEvent(new Event('input', { bubbles: true }));
       composer.dispatchEvent(new Event('change', { bubbles: true }));
 
-      // 3. Wait briefly for React to re-render Send button as enabled
-      await new Promise((r) => setTimeout(r, 200));
+      // 3. Wait for any attachment upload spinner to finish before attempting send
+      const uploadTimeout = Date.now() + 15000;
+      while (Date.now() < uploadTimeout) {
+        const spinner = document.querySelector('[role="progressbar"], .loading-spinner, [aria-label*="loading" i], [aria-label*="uploading" i]');
+        if (!spinner) break;
+        await new Promise((r) => setTimeout(r, 300));
+      }
 
-      // 4. Locate Send button
-      const sendBtn =
-        document.querySelector('button[data-testid="send-button"]') ||
-        document.querySelector('button[aria-label*="Send" i]') ||
-        document.querySelector('button[data-testid="fruitjuice-send-button"]') ||
-        composer.closest('form')?.querySelector('button[type="submit"]');
+      // 4. Wait for Send button to be enabled by React
+      let sendBtn = null;
+      const sendWaitTimeout = Date.now() + 5000;
+      while (Date.now() < sendWaitTimeout) {
+        sendBtn =
+          document.querySelector('button[data-testid="send-button"]') ||
+          document.querySelector('button[aria-label*="Send" i]') ||
+          document.querySelector('button[data-testid="fruitjuice-send-button"]') ||
+          composer.closest('form')?.querySelector('button[type="submit"]');
+
+        if (sendBtn && !sendBtn.disabled && sendBtn.getAttribute('aria-disabled') !== 'true') {
+          break;
+        }
+
+        composer.dispatchEvent(new Event('input', { bubbles: true }));
+        composer.dispatchEvent(new Event('change', { bubbles: true }));
+        await new Promise((r) => setTimeout(r, 250));
+      }
 
       if (sendBtn) {
         sendBtn.removeAttribute('disabled');
         sendBtn.setAttribute('aria-disabled', 'false');
         sendBtn.disabled = false;
-        // Dispatch exactly ONE click event
         sendBtn.click();
         console.log('[PromptFlow Main] Send button clicked cleanly (single dispatch)');
       } else {
@@ -113,6 +129,24 @@
           cancelable: true
         });
         composer.dispatchEvent(enterEvt);
+      }
+
+      // 5. Verification: Check if prompt was accepted or if composer still holds text
+      await new Promise((r) => setTimeout(r, 600));
+      const remainingText = (composer.innerText || composer.textContent || '').trim();
+      if (remainingText.length > 30) {
+        console.log('[PromptFlow Main] Composer text still present, re-triggering Enter fallback');
+        const enterEvt = new KeyboardEvent('keydown', {
+          key: 'Enter',
+          code: 'Enter',
+          keyCode: 13,
+          which: 13,
+          bubbles: true,
+          cancelable: true
+        });
+        composer.dispatchEvent(enterEvt);
+        if (sendBtn) sendBtn.click();
+        await new Promise((r) => setTimeout(r, 400));
       }
 
       window.dispatchEvent(

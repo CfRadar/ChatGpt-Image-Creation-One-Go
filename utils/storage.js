@@ -329,14 +329,14 @@ export const MODEL_GENDERS = {
   female: {
     id: 'female',
     label: 'Female Model',
-    description: 'an attractive, hot and sexy adult female fashion model with an athletic build and radiant skin',
-    styling: 'The model is styled wearing fitted black retro dolphin shorts with white trim beneath the T-shirt. The model has gorgeous long dark wavy hair casually draped over her shoulders, radiant skin, tasteful makeup, and a warm, charming, confident, hot and sexy smile looking toward the camera.'
+    description: 'an elegant, stylish, and professional adult female fashion model with an athletic build, radiant skin, and graceful poise',
+    styling: 'The model is styled wearing clean tailored minimalist dark shorts beneath the garment. The model has gorgeous long dark wavy hair casually draped over her shoulders, radiant skin, tasteful makeup, and a warm, confident, friendly, and charming smile looking toward the camera.'
   },
   male: {
     id: 'male',
     label: 'Male Model',
     description: 'a handsome, athletic, and stylish adult male fashion model with a fit build and well-groomed hair',
-    styling: 'The model is styled wearing clean tailored dark streetwear shorts/chinos beneath the T-shirt. The model has modern well-groomed hair, confident masculine posture, radiant skin, and a friendly, charismatic expression looking toward the camera.'
+    styling: 'The model is styled wearing clean tailored dark streetwear shorts/chinos beneath the garment. The model has modern well-groomed hair, confident masculine posture, radiant skin, and a friendly, charismatic expression looking toward the camera.'
   }
 };
 

@@ -305,16 +305,27 @@
       this.dismissStuckOverlays();
 
       // Check if reference image is already genuinely attached in composer thumbnail (strictly NOT the attach button)
-      const container = this.findComposerContainer() || document;
-      const existingAttachment = container.querySelector(
-        '[data-testid="attachment-thumbnail"], [data-testid*="thumbnail" i], button[aria-label*="Remove" i], button[data-testid*="remove" i], img[src^="blob:"]'
-      );
-      if (existingAttachment && this.isElementActive(existingAttachment)) {
-        const isAttachButton = existingAttachment.matches('button[data-testid*="attach" i], button[aria-label*="Attach" i], button[data-testid*="fruitjuice" i]') ||
-                               existingAttachment.closest('button[data-testid*="attach" i], button[aria-label*="Attach" i], button[data-testid*="fruitjuice" i]');
-        if (!isAttachButton) {
-          console.log('[PromptFlow] Reference image already attached in composer, skipping redundant upload.');
-          return true;
+      const composer = this.findComposer();
+      const container = this.findComposerContainer() || composer?.closest('form') || composer?.parentElement || null;
+      if (container) {
+        // If an old remove button or attachment from previous queue item is present in composer, clear it first
+        const removeBtn = container.querySelector('button[aria-label*="Remove" i], button[data-testid*="remove" i], button[aria-label*="Delete" i]');
+        if (removeBtn && this.isElementActive(removeBtn)) {
+          console.log('[PromptFlow] Removing previous attachment from composer before uploading fresh reference...');
+          removeBtn.click();
+          await sleep(400);
+        }
+
+        const existingAttachment = container.querySelector(
+          '[data-testid="attachment-thumbnail"], [data-testid*="thumbnail" i], button[aria-label*="Remove" i], button[data-testid*="remove" i]'
+        );
+        if (existingAttachment && this.isElementActive(existingAttachment)) {
+          const isAttachButton = existingAttachment.matches('button[data-testid*="attach" i], button[aria-label*="Attach" i], button[data-testid*="fruitjuice" i]') ||
+                                 existingAttachment.closest('button[data-testid*="attach" i], button[aria-label*="Attach" i], button[data-testid*="fruitjuice" i]');
+          if (!isAttachButton) {
+            console.log('[PromptFlow] Reference image already attached in composer, skipping redundant upload.');
+            return true;
+          }
         }
       }
 
@@ -332,8 +343,27 @@
         fileInput = this.findAttachmentElements().fileInput;
       }
 
-      // Inject file directly into the file input using native property setter
+      // 1. Dispatch synthetic paste event directly into composer
+      if (composer) {
+        try {
+          composer.focus();
+          const pasteEvt = new ClipboardEvent('paste', {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: dt
+          });
+          composer.dispatchEvent(pasteEvt);
+        } catch (pasteErr) {
+          console.warn('[PromptFlow] Paste event fallback note:', pasteErr);
+        }
+      }
+
+      // 2. Inject file directly into the file input using native property setter
       if (fileInput) {
+        try {
+          fileInput.value = '';
+        } catch (e) {}
+
         try {
           const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'files')?.set;
           if (nativeSetter) {
@@ -667,7 +697,17 @@
           // Dispatch ONLY the single native click event to prevent sending duplicate prompts
           sendBtn.click();
           console.log('[PromptFlow] Clicked Send button successfully (single dispatch)');
-          await sleep(800);
+          await sleep(600);
+
+          // Verify if composer still has prompt text (e.g. if React blocked click)
+          const comp = this.findComposer();
+          const remaining = (comp?.innerText || comp?.textContent || '').trim();
+          if (remaining.length > 30) {
+            console.log('[PromptFlow] Composer text still present after send click, dispatching Enter key fallback');
+            const enterDown = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true });
+            comp.dispatchEvent(enterDown);
+            await sleep(400);
+          }
           return true;
         }
 
@@ -1091,6 +1131,11 @@
 
       // 2. Poll until generation STOPS and a new image is found inside the assistant response
       while (Date.now() - startTime < timeoutMs) {
+        // Auto-scroll chat so newest assistant turn and images are virtualized/rendered in DOM
+        try {
+          window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
+        } catch (e) {}
+
         // Immediate ChatGPT error detection
         const errorEl = document.querySelector('.text-red-500, [data-testid="error-message"], .border-red-500, [class*="error-message"]');
         if (errorEl && errorEl.textContent.trim().length > 0) {
@@ -1105,7 +1150,6 @@
         const assistantTurns = this.getAssistantTurns();
 
         // Target ONLY assistant message(s) / turn(s) created for THIS prompt!
-        // Robust multi-tier scoping:
         let targetScopes = [];
         if (assistantMsgs.length > targetAssistantIndex) {
           targetScopes = assistantMsgs.slice(targetAssistantIndex);
@@ -1117,6 +1161,28 @@
           const nonUserTurns = allTurns.filter((art) => !art.querySelector('[data-message-author-role="user"]'));
           if (nonUserTurns.length > 0) {
             targetScopes = [nonUserTurns[nonUserTurns.length - 1]];
+          } else if (assistantMsgs.length > 0) {
+            targetScopes = [assistantMsgs.slice(-1)[0]];
+          }
+        }
+
+        // Fast refusal check: if ChatGPT replied with policy warning instead of generating an image
+        for (const scope of targetScopes) {
+          if (!scope) continue;
+          const scopeText = (scope.innerText || scope.textContent || '').toLowerCase();
+          const hasPolicyRefusal =
+            scopeText.includes('inappropriate') ||
+            scopeText.includes('content policy') ||
+            scopeText.includes('safety policy') ||
+            scopeText.includes('unable to generate') ||
+            scopeText.includes('cannot generate') ||
+            scopeText.includes("can't generate") ||
+            scopeText.includes('cannot create') ||
+            scopeText.includes('safety guidelines') ||
+            scopeText.includes('against our policy');
+
+          if (hasPolicyRefusal && !isGen && !scope.querySelector('img')) {
+            throw new Error(`ChatGPT refused image generation: ${scopeText.slice(0, 140).trim()}...`);
           }
         }
 
@@ -1129,7 +1195,7 @@
             continue;
           }
 
-          const images = Array.from(scope.querySelectorAll('img, picture img, [data-testid*="image"] img'));
+          const images = Array.from(scope.querySelectorAll('img, picture img, [data-testid*="image"] img, a[href*="oaiusercontent"] img, a[href*="blob:"] img'));
 
           for (const img of images) {
             const url = this.extractBestImageUrl(img);
@@ -1137,15 +1203,16 @@
 
             if (this.isExcludedImage(img, url)) continue;
 
-            // Check if new
-            if (!this.existingImagesSnapshot.has(url)) {
+            // Check if new: either not in snapshot, OR genuinely inside a newly created assistant scope!
+            const isNewlyCreatedTurn = assistantMsgs.length > targetAssistantIndex || assistantTurns.length > targetTurnIndex;
+            if (!this.existingImagesSnapshot.has(url) || isNewlyCreatedTurn) {
               this.wakeUpImage(img);
               candidateImages.push({ img, url });
             }
           }
 
           // Also check direct links to generated files if img tag is not directly used
-          const downloadLinks = Array.from(scope.querySelectorAll('a[href*="oaiusercontent"], a[download]'));
+          const downloadLinks = Array.from(scope.querySelectorAll('a[href*="oaiusercontent"], a[href*="blob:"], a[download]'));
           for (const a of downloadLinks) {
             const href = a.href;
             if (href && this.isOpenAIGeneratedImageUrl(href) && !this.existingImagesSnapshot.has(href)) {
@@ -1167,21 +1234,21 @@
           const isOpenAIUrl = this.isOpenAIGeneratedImageUrl(finalUrl);
           const hasImageEl = !!latest.img;
           const isComplete = hasImageEl ? latest.img.complete : true;
-          const hasNaturalDim = hasImageEl ? (latest.img.naturalWidth > 100 || latest.img.naturalWidth === 0) : true;
+          const hasNaturalDim = hasImageEl ? (latest.img.naturalWidth > 50 || latest.img.naturalWidth === 0) : true;
           const candidateAgeMs = Date.now() - candidateFirstSeenTime;
 
           // Acceptance criteria:
           // 1. Generation has stopped (!isGen) AND image element is complete or URL is verified OpenAI CDN
-          // 2. OR URL is a confirmed OpenAI generated image URL and has been stable for > 2.0s (MacBook App Nap / background tab resilience)
+          // 2. OR URL is a confirmed OpenAI generated image URL and has been stable for > 1.5s
           // 3. OR Send button is back and ready to send
           const sendBtnReady = !isGen;
           const isReadyToAccept =
             (sendBtnReady && (isComplete || isOpenAIUrl) && hasNaturalDim) ||
-            (isOpenAIUrl && candidateAgeMs > 2000) ||
-            (isOpenAIUrl && isComplete && latest.img?.naturalWidth > 100);
+            (isOpenAIUrl && candidateAgeMs > 1500) ||
+            (isOpenAIUrl && isComplete && (latest.img ? latest.img.naturalWidth > 50 : true));
 
           if (isReadyToAccept) {
-            await sleep(600);
+            await sleep(500);
             const verifiedUrl = (latest.img ? this.extractBestImageUrl(latest.img) : null) || finalUrl;
             this.existingImagesSnapshot.add(verifiedUrl);
             console.log('[PromptFlow] Detected newly generated image in assistant message:', verifiedUrl);

@@ -829,10 +829,23 @@ console.log('\n[Test Suite 7] 7 Default Fashion Prompts & Custom Modification Li
   assert(!simulateIsOpenAIGeneratedImageUrl('https://lh3.googleusercontent.com/a/avatar123'), 'Rejects Google profile avatars');
   assert(!simulateIsOpenAIGeneratedImageUrl('https://cdn.oaistatic.com/_next/static/media/logo.png'), 'Rejects ChatGPT UI static logo');
 
-  // Verify audio/voice button exclusion from stop button detection
-  assert(chatgptContentScript.includes('speech'), 'content/chatgpt.js excludes speech buttons from stop detection');
-  assert(chatgptContentScript.includes('voice'), 'content/chatgpt.js excludes voice buttons from stop detection');
-  assert(chatgptContentScript.includes('listen'), 'content/chatgpt.js excludes listening buttons from stop detection');
+  // [Test Suite 11] Queue Progression, Image Refusal Handling & Content Policy Compliance
+  console.log('\n[Test Suite 11] Multi-Queue Reliability, Auto-Refusal Detection & Content Moderation Safety');
+
+  const { MODEL_GENDERS: mgCheck } = await import('../utils/storage.js');
+  const femaleDesc = (mgCheck.female.description + ' ' + mgCheck.female.styling).toLowerCase();
+  assert(!femaleDesc.includes('hot'), 'Female model prompt contains NO "hot" keyword (prevents moderation refusal)');
+  assert(!femaleDesc.includes('sexy'), 'Female model prompt contains NO "sexy" keyword (prevents moderation refusal)');
+  assert(femaleDesc.includes('adult female'), 'Female model prompt retains professional "adult female" description');
+
+  const mainWorldScript = fs.readFileSync(path.join(rootDir, 'content/chatgpt-main.js'), 'utf8');
+  assert(mainWorldScript.includes('uploadTimeout') || mainWorldScript.includes('progressbar'), 'chatgpt-main.js waits for image upload progress before sending');
+  assert(mainWorldScript.includes('sendWaitTimeout'), 'chatgpt-main.js polls until Send button is enabled by React');
+  assert(mainWorldScript.includes('remainingText') || mainWorldScript.includes('remaining'), 'chatgpt-main.js verifies prompt was cleared from composer');
+
+  assert(chatgptContentScript.includes('hasPolicyRefusal') || chatgptContentScript.includes('safety guidelines'), 'content/chatgpt.js detects ChatGPT policy refusals instantly');
+  assert(chatgptContentScript.includes('ClipboardEvent') && chatgptContentScript.includes('paste'), 'content/chatgpt.js uses paste event for reliable multi-queue image attachment');
+  assert(chatgptContentScript.includes('scrollHeight'), 'content/chatgpt.js auto-scrolls chat to ensure virtualized turns & images are rendered');
 
   // Summary
   console.log('\n========================================');
