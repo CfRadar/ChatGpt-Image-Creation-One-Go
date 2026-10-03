@@ -536,7 +536,7 @@ CONTENT RULES
 2. No trademarked brand names, character names or celebrity names. Describe the art generically (e.g. "retro cartoon-inspired graphic print").
 3. Women only. Never write "Men’s/Women’s" or "Unisex".
 4. Sleeves are 3/4 sleeves. Never write "short sleeves" or "half sleeves".
-5. sku_base: lowercase, letters/numbers/underscores only, no spaces, ends with "_os" (e.g. "lobster_os").
+5. sku_base: not required in JSON (the system automatically uses the design name from your sheet).
 6. Multi-value fields use "::" with no spaces around it.
 7. For pattern, surface_styling, detail_placement and tee_length use ONLY the allowed values below, with exact spelling and capitalisation.
 
@@ -548,7 +548,6 @@ tee_length (1): Crop | Long | Medium | Short
 
 EXAMPLE (copy this structure, length and style; replace only the design-specific parts)
 {
-  "sku_base": "retro_os",
   "product_title": "Women’s Premium Oversized Printed T-Shirt",
   "product_description": "Add a stylish retro touch to your everyday wardrobe with this premium black oversized printed T-shirt. Designed with a relaxed silhouette and a bold retro cartoon-inspired graphic print, this T-shirt combines comfort with a modern streetwear aesthetic. The soft, breathable fabric and oversized fit make it suitable for casual outings, college wear, travel, and everyday styling.",
   "key_features": [
@@ -573,7 +572,30 @@ EXAMPLE (copy this structure, length and style; replace only the design-specific
   "brand_color": "Black",
   "occasion": "Casual",
   "style_code": "",
-  "description_override": "Women’s Premium Oversized Printed T-Shirt\\n\\nAdd a stylish retro touch to your everyday wardrobe with this premium black oversized printed T-shirt. Designed with a relaxed silhouette and a bold retro cartoon-inspired graphic print, this T-shirt combines comfort with a modern streetwear aesthetic. The soft, breathable fabric and oversized fit make it suitable for casual outings, college wear, travel, and everyday styling.\\n\\nKey Features:\\n\\nPremium-quality fabric\\nStylish oversized / relaxed fit\\nBold high-definition front graphic print\\nClassic round crew neck\\n3/4 sleeves\\nSoft and comfortable feel\\nBreathable and lightweight construction\\nDurable print with vibrant detailing\\nEasy to wash and maintain\\nSuitable for casual, streetwear and everyday looks\\n\\nStyle: Oversized / Relaxed Fit\\nColor: Black\\nPattern: Graphic Print\\nNeck: Round Neck\\nSleeve: 3/4 Sleeve\\nOccasion: Casual, Streetwear, Daily Wear\\nPrint Placement: Front Only",
+  "description_override": "Women’s Premium Oversized Printed T-Shirt
+
+Add a stylish retro touch to your everyday wardrobe with this premium black oversized printed T-shirt. Designed with a relaxed silhouette and a bold retro cartoon-inspired graphic print, this T-shirt combines comfort with a modern streetwear aesthetic. The soft, breathable fabric and oversized fit make it suitable for casual outings, college wear, travel, and everyday styling.
+
+Key Features:
+
+Premium-quality fabric
+Stylish oversized / relaxed fit
+Bold high-definition front graphic print
+Classic round crew neck
+3/4 sleeves
+Soft and comfortable feel
+Breathable and lightweight construction
+Durable print with vibrant detailing
+Easy to wash and maintain
+Suitable for casual, streetwear and everyday looks
+
+Style: Oversized / Relaxed Fit
+Color: Black
+Pattern: Graphic Print
+Neck: Round Neck
+Sleeve: 3/4 Sleeve
+Occasion: Casual, Streetwear, Daily Wear
+Print Placement: Front Only",
   "search_keywords": "Graphic Print::Cartoon::Oversized::Casual",
   "key_features_sheet": "Graphic Print::Oversized Fit::Premium Cotton Fabric::Skin-Friendly Fabric",
   "fabric_care": "Regular Machine Wash",
@@ -586,7 +608,7 @@ EXAMPLE (copy this structure, length and style; replace only the design-specific
 }
 
 TASK
-Now produce the JSON for the uploaded design. Keep every fixed field exactly as in the example (material, sleeve_type, neck_type, fit_type, ideal_for, color, brand_color, occasion, style_code, fabric_care, print_coverage, sleeve_details, detail_placement_rows, and the whole template text of description_override). Change only what depends on the design: sku_base, the print wording in product_description and key_features[0], pattern, search_keywords, key_features_sheet[0], surface_styling, tee_length, detail_placement and "Print Placement". Output the JSON only.`;
+Now produce the JSON for the uploaded design. Keep every fixed field exactly as in the example (material, sleeve_type, neck_type, fit_type, ideal_for, color, brand_color, occasion, style_code, fabric_care, print_coverage, sleeve_details, detail_placement_rows, and the whole template text of description_override). Change only what depends on the design: the print wording in product_description and key_features[0], pattern, search_keywords, key_features_sheet[0], surface_styling, tee_length, detail_placement and \\"Print Placement\\". Output the JSON only.`;
 
 export function buildPromptsForConfig(config = {}) {
   const genderKey = config.modelGender || 'female';
@@ -1097,6 +1119,24 @@ class StorageManager {
         }
       });
     }
+    // Ensure Prompt 7 (Catalog JSON) reflects latest prompt template
+    if (Array.isArray(session.prompts) && session.prompts[6]) {
+      if (session.prompts[6].text && session.prompts[6].text.includes('sku_base: lowercase')) {
+        session.prompts[6].text = FLIPKART_CATALOG_PROMPT;
+        promptsSanitized = true;
+      }
+    }
+    if (Array.isArray(session.queue)) {
+      session.queue.forEach((item) => {
+        if (Array.isArray(item.prompts) && item.prompts[6]) {
+          if (item.prompts[6].text && item.prompts[6].text.includes('sku_base: lowercase')) {
+            item.prompts[6].text = FLIPKART_CATALOG_PROMPT;
+            promptsSanitized = true;
+          }
+        }
+      });
+    }
+
     if (promptsSanitized) {
       await this.saveSession(session);
     }

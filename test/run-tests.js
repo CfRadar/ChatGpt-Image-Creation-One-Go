@@ -445,6 +445,8 @@ console.log('\n[Test Suite 7] 7 Default Fashion Prompts & Custom Modification Li
 
   // Verify Prompt 7: Flipkart Catalog Specialist JSON
   assert(DEFAULT_PROMPT_TEXTS[6].includes('Flipkart catalog specialist') && DEFAULT_PROMPT_TEXTS[6].includes('product_title'), 'Prompt 7 contains Flipkart catalog specialist instructions');
+  assert(DEFAULT_PROMPT_TEXTS[6].includes('sku_base: not required in JSON (the system automatically uses the design name from your sheet).'), 'Prompt 7 states sku_base is not required');
+  assert(!DEFAULT_PROMPT_TEXTS[6].includes('"sku_base": "retro_os"'), 'Prompt 7 EXAMPLE JSON excludes sku_base');
 
   // Verify initial session creation has all 7 prompts populated by default
   const defaultSession = createInitialSession();
