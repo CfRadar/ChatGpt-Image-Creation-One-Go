@@ -152,16 +152,37 @@
       const container = this.findComposerContainer() || document;
       const strategies = [
         () => container.querySelector('button[data-testid="stop-button"]'),
-        () => container.querySelector('button[aria-label*="Stop" i]'),
         () => container.querySelector('button[data-testid="stop-generating-button"]'),
         () => document.querySelector('button[data-testid="stop-button"]'),
-        () => document.querySelector('button[aria-label*="Stop" i]')
+        () => document.querySelector('button[data-testid="stop-generating-button"]'),
+        // Semantic aria-labels specifically for stopping generation / streaming (exclude speech/audio/voice)
+        () => {
+          const btns = container.querySelectorAll('button[aria-label*="Stop" i]');
+          for (const btn of btns) {
+            const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+            if (label.includes('speech') || label.includes('voice') || label.includes('listen') || label.includes('audio') || label.includes('read')) {
+              continue;
+            }
+            if (label.includes('generat') || label.includes('stream') || label.includes('response') || label.includes('stop')) {
+              return btn;
+            }
+          }
+          return null;
+        }
       ];
 
       for (const strategy of strategies) {
         try {
           const btn = strategy();
-          if (btn && this.isElementActive(btn)) return btn;
+          if (btn && this.isElementActive(btn)) {
+            // Must not be disabled or hidden
+            if (btn.disabled || btn.getAttribute('aria-disabled') === 'true') continue;
+            try {
+              const style = window.getComputedStyle(btn);
+              if (style.opacity === '0' || style.visibility === 'hidden' || style.pointerEvents === 'none') continue;
+            } catch (e) {}
+            return btn;
+          }
         } catch (e) {}
       }
       return null;
@@ -171,15 +192,25 @@
      * Detects if ChatGPT is actively generating / streaming.
      */
     isGenerating() {
-      // Signal 1: Stop button is present and visible
+      // If send button is visible, active, and enabled, ChatGPT is ready for the next prompt (not generating)
+      const sendBtn = this.findSendButton();
+      const sendLabel = (sendBtn?.getAttribute('aria-label') || '').toLowerCase();
+      if (sendBtn && this.isElementActive(sendBtn) && !sendBtn.disabled && sendBtn.getAttribute('aria-disabled') !== 'true') {
+        if (!sendLabel.includes('stop')) {
+          // Send button is ready to send -> definitely NOT generating!
+          return false;
+        }
+      }
+
+      // Signal 1: Active stop button is present and clickable
       if (this.findStopButton()) return true;
 
       // Signal 2: Streaming class or attribute on conversation or body
-      if (document.querySelector('.result-streaming, [data-is-streaming="true"]')) return true;
+      const streamingEl = document.querySelector('.result-streaming, [data-is-streaming="true"]');
+      if (streamingEl && this.isElementActive(streamingEl)) return true;
 
-      // Signal 3: Check if send button is transformed into stop icon or disabled during streaming
-      const sendBtn = this.findSendButton();
-      if (sendBtn && sendBtn.getAttribute('aria-label')?.toLowerCase().includes('stop')) {
+      // Signal 3: Check if send button is transformed into stop icon
+      if (sendBtn && sendLabel.includes('stop')) {
         return true;
       }
 
@@ -703,7 +734,23 @@
       images.forEach((img) => {
         if (img.src) this.existingImagesSnapshot.add(img.src);
         if (img.currentSrc) this.existingImagesSnapshot.add(img.currentSrc);
+        const attrSrc = img.getAttribute('src');
+        if (attrSrc) this.existingImagesSnapshot.add(attrSrc);
+        const srcset = img.srcset || img.getAttribute('srcset');
+        if (srcset) {
+          srcset.split(',').forEach((part) => {
+            const u = part.trim().split(/\s+/)[0];
+            if (u) this.existingImagesSnapshot.add(u);
+          });
+        }
       });
+
+      // Also record any existing download links
+      const links = document.querySelectorAll('a[href*="oaiusercontent"], a[download]');
+      links.forEach((a) => {
+        if (a.href) this.existingImagesSnapshot.add(a.href);
+      });
+
       const assistantMsgs = this.getAssistantMessages();
       this.baselineAssistantCount = assistantMsgs.length;
       this.baselineTurnCount = this.getAssistantTurns().length;
@@ -791,10 +838,148 @@
     }
 
     /**
+     * Extracts the best high-resolution image URL from an img element or its container,
+     * handling Retina display srcset, picture sources, data-src, and CDN download links.
+     */
+    extractBestImageUrl(img) {
+      if (!img) return null;
+
+      // 1. High-resolution srcset handling (especially on Retina / HiDPI MacBooks)
+      const srcset = img.srcset || img.getAttribute('srcset') || img.closest('picture')?.querySelector('source')?.getAttribute('srcset');
+      if (srcset) {
+        const candidates = srcset
+          .split(',')
+          .map((s) => s.trim().split(/\s+/)[0])
+          .filter((u) => u && !u.startsWith('data:image/svg') && !u.startsWith('data:image/gif'));
+        if (candidates.length > 0) {
+          const highestRes = candidates[candidates.length - 1];
+          if (highestRes) return highestRes;
+        }
+      }
+
+      // 2. Direct currentSrc (populated by browser after resolving srcset/src)
+      if (img.currentSrc && !img.currentSrc.startsWith('data:image/svg') && !img.currentSrc.startsWith('data:image/gif')) {
+        return img.currentSrc;
+      }
+
+      // 3. Direct src attribute
+      const src = img.src || img.getAttribute('src');
+      if (src && !src.startsWith('data:image/svg') && !src.startsWith('data:image/gif')) {
+        return src;
+      }
+
+      // 4. Lazy-load data attributes
+      const dataSrc = img.getAttribute('data-src') || img.dataset?.src || img.getAttribute('data-original-src');
+      if (dataSrc && !dataSrc.startsWith('data:')) {
+        return dataSrc;
+      }
+
+      // 5. Parent or sibling download/lightbox link
+      const anchor = img.closest('a[href*="oaiusercontent"], a[download]') ||
+                     img.parentElement?.querySelector('a[href*="oaiusercontent"], a[download]');
+      if (anchor && anchor.href && !anchor.href.startsWith('javascript:')) {
+        return anchor.href;
+      }
+
+      return null;
+    }
+
+    /**
+     * Recognizes URLs corresponding to OpenAI / DALL-E / ChatGPT generated image assets.
+     */
+    isOpenAIGeneratedImageUrl(url) {
+      if (!url || typeof url !== 'string') return false;
+      const lower = url.toLowerCase();
+      return (
+        lower.includes('files.oaiusercontent.com') ||
+        lower.includes('oaidalleapiprodscus.blob.core.windows.net') ||
+        lower.includes('.oaiusercontent.com') ||
+        lower.includes('blob.core.windows.net') ||
+        lower.includes('backend-api/files') ||
+        lower.includes('dalle') ||
+        lower.startsWith('blob:https://chatgpt.com') ||
+        lower.startsWith('blob:http://chatgpt.com')
+      );
+    }
+
+    /**
+     * Identifies images that must be excluded: avatars, user reference uploads, icons, spinners.
+     */
+    isExcludedImage(img, url) {
+      if (!img) return true;
+      const lowerUrl = (url || '').toLowerCase();
+
+      // Exclude placeholder data URIs
+      if (lowerUrl.startsWith('data:image/svg') || lowerUrl.startsWith('data:image/gif')) {
+        return true;
+      }
+
+      // Exclude user attachments or composer images
+      if (
+        img.closest('[data-message-author-role="user"]') ||
+        img.closest('form') ||
+        img.closest('[class*="attachment"]') ||
+        img.closest('[data-testid*="attachment"]') ||
+        img.closest('[data-testid*="fruitjuice"]') ||
+        img.closest('[data-testid*="composer"]')
+      ) {
+        return true;
+      }
+
+      // Exclude avatar images
+      const alt = (img.getAttribute('alt') || '').toLowerCase();
+      const className = (img.className || '').toLowerCase();
+      const parentClass = (img.parentElement?.className || '').toLowerCase();
+
+      if (
+        alt.includes('user') ||
+        alt.includes('avatar') ||
+        alt.includes('chatgpt') ||
+        alt.includes('profile') ||
+        className.includes('avatar') ||
+        parentClass.includes('avatar') ||
+        lowerUrl.includes('avatar') ||
+        lowerUrl.includes('gravatar')
+      ) {
+        return true;
+      }
+
+      // Exclude tiny icons unless it is a verified OpenAI CDN URL
+      const isOpenAI = this.isOpenAIGeneratedImageUrl(url);
+      if (!isOpenAI) {
+        if (img.naturalWidth > 0 && img.naturalWidth < 120) return true;
+        if (img.naturalHeight > 0 && img.naturalHeight < 120) return true;
+        if (img.width > 0 && img.width < 120) return true;
+        if (img.height > 0 && img.height < 120) return true;
+      }
+
+      return false;
+    }
+
+    /**
+     * Wakes up image loading for lazy-loaded elements on macOS/WebKit and background tabs.
+     */
+    wakeUpImage(img) {
+      if (!img) return;
+      try {
+        if (img.getAttribute('loading') === 'lazy') {
+          img.setAttribute('loading', 'eager');
+          img.loading = 'eager';
+        }
+        if (typeof img.scrollIntoView === 'function') {
+          img.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
+        if (typeof img.decode === 'function') {
+          img.decode().catch(() => {});
+        }
+      } catch (e) {}
+    }
+
+    /**
      * Detects the newly generated image EXCLUSIVELY in the new assistant turn(s).
      * Solves the issue where identical prompts would confuse older generations with current ones.
      */
-    async detectNewGeneratedImage(timeoutMs = 45000) {
+    async detectNewGeneratedImage(timeoutMs = 50000) {
       const startTime = Date.now();
       console.log(`[PromptFlow] Scanning for newly generated image in turns after index ${this.baselineTurnCount}...`);
 
@@ -809,39 +994,22 @@
 
         for (const scope of targetTurns) {
           if (!scope) continue;
-          const images = Array.from(scope.querySelectorAll('img'));
+          if (scope.getAttribute('data-message-author-role') === 'user' || scope.querySelector?.('[data-message-author-role="user"]')) {
+            continue;
+          }
+
+          const images = Array.from(scope.querySelectorAll('img, picture img, [data-testid*="image"] img'));
 
           for (const img of images) {
-            const src = img.currentSrc || img.src;
+            const src = this.extractBestImageUrl(img);
             if (!src) continue;
 
-            // Filter out avatar images
-            const alt = (img.getAttribute('alt') || '').toLowerCase();
-            const className = (img.className || '').toLowerCase();
-            const parentClass = (img.parentElement?.className || '').toLowerCase();
-
-            if (
-              alt.includes('user') ||
-              alt.includes('avatar') ||
-              alt.includes('chatgpt') ||
-              alt.includes('profile') ||
-              className.includes('avatar') ||
-              parentClass.includes('avatar') ||
-              src.includes('avatar') ||
-              src.includes('gravatar')
-            ) {
-              continue;
-            }
-
-            // Filter out UI icons (small dimensions)
-            if (img.naturalWidth > 0 && img.naturalWidth < 120) continue;
-            if (img.naturalHeight > 0 && img.naturalHeight < 120) continue;
+            if (this.isExcludedImage(img, src)) continue;
 
             // Check if this image was NOT in the pre-prompt snapshot
-            const isNew = !this.existingImagesSnapshot.has(src);
-
-            if (isNew) {
-              candidateImages.push(img);
+            if (!this.existingImagesSnapshot.has(src)) {
+              this.wakeUpImage(img);
+              candidateImages.push({ img, src });
             }
           }
 
@@ -850,27 +1018,33 @@
           }
         }
 
-        // If found candidates, verify image is fully loaded
+        // If found candidates, verify image is fully loaded or confirmed OpenAI URL
         if (candidateImages.length > 0) {
-          const targetImg = candidateImages[candidateImages.length - 1]; // latest image
+          const target = candidateImages[candidateImages.length - 1];
+          const targetImg = target.img;
+          const targetUrl = target.src;
+          const isOpenAI = this.isOpenAIGeneratedImageUrl(targetUrl);
 
-          if (targetImg.complete && targetImg.naturalWidth > 100) {
-            const finalUrl = targetImg.currentSrc || targetImg.src;
+          if (isOpenAI || (targetImg && targetImg.complete && (targetImg.naturalWidth > 100 || targetImg.naturalWidth === 0))) {
+            const finalUrl = (targetImg ? this.extractBestImageUrl(targetImg) : null) || targetUrl;
             this.existingImagesSnapshot.add(finalUrl); // Mark seen for subsequent prompts
             console.log('[PromptFlow] Successfully detected new generated image:', finalUrl);
             return finalUrl;
           }
 
-          // If still loading, wait for it
+          // If still loading, wake it up and wait briefly
           try {
-            await new Promise((res, rej) => {
-              targetImg.addEventListener('load', () => res(), { once: true });
-              targetImg.addEventListener('error', () => rej(new Error('Image failed to load in DOM')), { once: true });
-              setTimeout(res, 3000);
-            });
-            const finalUrl = targetImg.currentSrc || targetImg.src;
-            this.existingImagesSnapshot.add(finalUrl);
-            return finalUrl;
+            if (targetImg) {
+              this.wakeUpImage(targetImg);
+              await new Promise((res) => {
+                targetImg.addEventListener('load', () => res(), { once: true });
+                targetImg.addEventListener('error', () => res(), { once: true });
+                setTimeout(res, 2000);
+              });
+              const finalUrl = this.extractBestImageUrl(targetImg) || targetUrl;
+              this.existingImagesSnapshot.add(finalUrl);
+              return finalUrl;
+            }
           } catch (e) {
             console.warn('[PromptFlow] Waiting for image load event warning:', e);
           }
@@ -890,7 +1064,8 @@
       const timeoutMs = timeoutMinutes * 60 * 1000;
       const startTime = Date.now();
       const targetAssistantIndex = this.baselineAssistantCount || 0;
-      console.log(`[PromptFlow] Monitoring for generated image in assistant turn >= index ${targetAssistantIndex}...`);
+      const targetTurnIndex = this.baselineTurnCount || 0;
+      console.log(`[PromptFlow] Monitoring for generated image in assistant turn >= index ${targetAssistantIndex}, turn >= index ${targetTurnIndex}...`);
 
       // 1. Give ChatGPT up to 15s to initiate generation (stop button appearing or assistant turn creation)
       let generationInitiated = false;
@@ -902,13 +1077,17 @@
           break;
         }
         const msgs = this.getAssistantMessages();
-        if (msgs.length > targetAssistantIndex) {
+        const turns = this.getAssistantTurns();
+        if (msgs.length > targetAssistantIndex || turns.length > targetTurnIndex) {
           generationInitiated = true;
           console.log('[PromptFlow] Generation start confirmed (new assistant turn created)');
           break;
         }
         await sleep(350);
       }
+
+      let candidateFirstSeenTime = 0;
+      let lastCandidateUrl = null;
 
       // 2. Poll until generation STOPS and a new image is found inside the assistant response
       while (Date.now() - startTime < timeoutMs) {
@@ -923,15 +1102,24 @@
 
         const isGen = this.isGenerating();
         const assistantMsgs = this.getAssistantMessages();
+        const assistantTurns = this.getAssistantTurns();
 
-        // Target ONLY the assistant message(s) created for THIS prompt!
-        // Never fall back to older assistant messages!
-        if (assistantMsgs.length <= targetAssistantIndex) {
-          await sleep(800);
-          continue;
+        // Target ONLY assistant message(s) / turn(s) created for THIS prompt!
+        // Robust multi-tier scoping:
+        let targetScopes = [];
+        if (assistantMsgs.length > targetAssistantIndex) {
+          targetScopes = assistantMsgs.slice(targetAssistantIndex);
+        } else if (assistantTurns.length > targetTurnIndex) {
+          targetScopes = assistantTurns.slice(targetTurnIndex);
+        } else {
+          // If counts haven't incremented yet, inspect the latest non-user article
+          const allTurns = Array.from(document.querySelectorAll('article[data-testid^="conversation-turn-"]'));
+          const nonUserTurns = allTurns.filter((art) => !art.querySelector('[data-message-author-role="user"]'));
+          if (nonUserTurns.length > 0) {
+            targetScopes = [nonUserTurns[nonUserTurns.length - 1]];
+          }
         }
 
-        const targetScopes = assistantMsgs.slice(targetAssistantIndex);
         const candidateImages = [];
 
         for (const scope of targetScopes) {
@@ -941,56 +1129,63 @@
             continue;
           }
 
-          const images = Array.from(scope.querySelectorAll('img'));
+          const images = Array.from(scope.querySelectorAll('img, picture img, [data-testid*="image"] img'));
 
           for (const img of images) {
-            const src = img.currentSrc || img.src;
-            if (!src) continue;
+            const url = this.extractBestImageUrl(img);
+            if (!url) continue;
 
-            // Exclude user attachments or composer images
-            if (img.closest('[data-message-author-role="user"]') || img.closest('form') || img.closest('[class*="attachment"]')) {
-              continue;
-            }
-
-            // Exclude avatars
-            const alt = (img.getAttribute('alt') || '').toLowerCase();
-            const className = (img.className || '').toLowerCase();
-            const parentClass = (img.parentElement?.className || '').toLowerCase();
-
-            if (
-              alt.includes('user') ||
-              alt.includes('avatar') ||
-              alt.includes('chatgpt') ||
-              alt.includes('profile') ||
-              className.includes('avatar') ||
-              parentClass.includes('avatar') ||
-              src.includes('avatar') ||
-              src.includes('gravatar')
-            ) {
-              continue;
-            }
-
-            // Exclude tiny icons
-            if (img.naturalWidth > 0 && img.naturalWidth < 120) continue;
-            if (img.naturalHeight > 0 && img.naturalHeight < 120) continue;
+            if (this.isExcludedImage(img, url)) continue;
 
             // Check if new
-            if (!this.existingImagesSnapshot.has(src)) {
-              candidateImages.push({ img, src });
+            if (!this.existingImagesSnapshot.has(url)) {
+              this.wakeUpImage(img);
+              candidateImages.push({ img, url });
+            }
+          }
+
+          // Also check direct links to generated files if img tag is not directly used
+          const downloadLinks = Array.from(scope.querySelectorAll('a[href*="oaiusercontent"], a[download]'));
+          for (const a of downloadLinks) {
+            const href = a.href;
+            if (href && this.isOpenAIGeneratedImageUrl(href) && !this.existingImagesSnapshot.has(href)) {
+              candidateImages.push({ img: null, url: href });
             }
           }
         }
 
         if (candidateImages.length > 0) {
           const latest = candidateImages[candidateImages.length - 1];
+          const finalUrl = latest.url;
 
-          // Generation MUST be finished (stop button gone) AND image element complete
-          if (!isGen && latest.img.complete && (latest.img.naturalWidth > 100 || latest.img.naturalWidth === 0)) {
+          // Track URL stability
+          if (lastCandidateUrl !== finalUrl) {
+            lastCandidateUrl = finalUrl;
+            candidateFirstSeenTime = Date.now();
+          }
+
+          const isOpenAIUrl = this.isOpenAIGeneratedImageUrl(finalUrl);
+          const hasImageEl = !!latest.img;
+          const isComplete = hasImageEl ? latest.img.complete : true;
+          const hasNaturalDim = hasImageEl ? (latest.img.naturalWidth > 100 || latest.img.naturalWidth === 0) : true;
+          const candidateAgeMs = Date.now() - candidateFirstSeenTime;
+
+          // Acceptance criteria:
+          // 1. Generation has stopped (!isGen) AND image element is complete or URL is verified OpenAI CDN
+          // 2. OR URL is a confirmed OpenAI generated image URL and has been stable for > 2.0s (MacBook App Nap / background tab resilience)
+          // 3. OR Send button is back and ready to send
+          const sendBtnReady = !isGen;
+          const isReadyToAccept =
+            (sendBtnReady && (isComplete || isOpenAIUrl) && hasNaturalDim) ||
+            (isOpenAIUrl && candidateAgeMs > 2000) ||
+            (isOpenAIUrl && isComplete && latest.img?.naturalWidth > 100);
+
+          if (isReadyToAccept) {
             await sleep(600);
-            const finalSrc = latest.img.currentSrc || latest.img.src || latest.src;
-            this.existingImagesSnapshot.add(finalSrc);
-            console.log('[PromptFlow] Detected newly generated image in assistant message:', finalSrc);
-            return finalSrc;
+            const verifiedUrl = (latest.img ? this.extractBestImageUrl(latest.img) : null) || finalUrl;
+            this.existingImagesSnapshot.add(verifiedUrl);
+            console.log('[PromptFlow] Detected newly generated image in assistant message:', verifiedUrl);
+            return verifiedUrl;
           }
         }
 

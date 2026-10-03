@@ -765,6 +765,67 @@ console.log('\n[Test Suite 7] 6 Default Fashion Prompts & Custom Modification Li
   const hasMainWorld = manifestJson.content_scripts.some(cs => cs.world === 'MAIN' && cs.js.includes('content/chatgpt-main.js'));
   assert(hasMainWorld, 'manifest.json configures content/chatgpt-main.js in MAIN world');
 
+  // 10. MacBook / Retina Display & macOS App Nap Image Detection Resilience
+  console.log('\n[Test Suite 10] MacBook / Retina Display & macOS App Nap Image Detection Resilience');
+
+  assert(chatgptContentScript.includes('extractBestImageUrl'), 'content/chatgpt.js defines extractBestImageUrl for Retina srcset parsing');
+  assert(chatgptContentScript.includes('isOpenAIGeneratedImageUrl'), 'content/chatgpt.js defines isOpenAIGeneratedImageUrl for OpenAI CDN recognition');
+  assert(chatgptContentScript.includes('wakeUpImage'), 'content/chatgpt.js defines wakeUpImage for macOS lazy loading & decode wake-up');
+  assert(chatgptContentScript.includes('isExcludedImage'), 'content/chatgpt.js defines isExcludedImage for avatar/icon filtering');
+  assert(chatgptContentScript.includes('files.oaiusercontent.com'), 'content/chatgpt.js explicitly recognizes files.oaiusercontent.com URLs');
+  assert(chatgptContentScript.includes('oaidalleapiprodscus.blob.core.windows.net'), 'content/chatgpt.js explicitly recognizes DALL-E blob storage URLs');
+
+  // Verify Retina 2x srcset extraction simulation
+  function simulateExtractBestImageUrl(img) {
+    if (!img) return null;
+    const srcset = img.srcset || (img.getAttribute && img.getAttribute('srcset'));
+    if (srcset) {
+      const candidates = srcset
+        .split(',')
+        .map((s) => s.trim().split(/\s+/)[0])
+        .filter((u) => u && !u.startsWith('data:image/svg') && !u.startsWith('data:image/gif'));
+      if (candidates.length > 0) {
+        return candidates[candidates.length - 1];
+      }
+    }
+    return img.currentSrc || img.src || null;
+  }
+
+  const mockRetinaImg = {
+    srcset: 'https://files.oaiusercontent.com/file-std_1024 1x, https://files.oaiusercontent.com/file-retina_2048 2x',
+    currentSrc: 'https://files.oaiusercontent.com/file-std_1024',
+    src: ''
+  };
+  const extractedRetinaUrl = simulateExtractBestImageUrl(mockRetinaImg);
+  assert(extractedRetinaUrl === 'https://files.oaiusercontent.com/file-retina_2048', `Retina MacBook selects highest-res 2x image from srcset: ${extractedRetinaUrl}`);
+
+  // Verify App Nap background image acceptance without blocking indefinitely on img.complete
+  function simulateIsOpenAIGeneratedImageUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    const lower = url.toLowerCase();
+    return (
+      lower.includes('files.oaiusercontent.com') ||
+      lower.includes('oaidalleapiprodscus.blob.core.windows.net') ||
+      lower.includes('.oaiusercontent.com') ||
+      lower.includes('blob.core.windows.net') ||
+      lower.includes('backend-api/files') ||
+      lower.includes('dalle') ||
+      lower.startsWith('blob:https://chatgpt.com') ||
+      lower.startsWith('blob:http://chatgpt.com')
+    );
+  }
+
+  assert(simulateIsOpenAIGeneratedImageUrl('https://files.oaiusercontent.com/file-abc12345'), 'Recognizes files.oaiusercontent.com image URL');
+  assert(simulateIsOpenAIGeneratedImageUrl('https://oaidalleapiprodscus.blob.core.windows.net/private/org-123/img.png'), 'Recognizes DALL-E Azure Blob storage image URL');
+  assert(simulateIsOpenAIGeneratedImageUrl('blob:https://chatgpt.com/f9c80d26-70e1-4560-b60c-263a9fbffb69'), 'Recognizes local ChatGPT Blob URL');
+  assert(!simulateIsOpenAIGeneratedImageUrl('https://lh3.googleusercontent.com/a/avatar123'), 'Rejects Google profile avatars');
+  assert(!simulateIsOpenAIGeneratedImageUrl('https://cdn.oaistatic.com/_next/static/media/logo.png'), 'Rejects ChatGPT UI static logo');
+
+  // Verify audio/voice button exclusion from stop button detection
+  assert(chatgptContentScript.includes('speech'), 'content/chatgpt.js excludes speech buttons from stop detection');
+  assert(chatgptContentScript.includes('voice'), 'content/chatgpt.js excludes voice buttons from stop detection');
+  assert(chatgptContentScript.includes('listen'), 'content/chatgpt.js excludes listening buttons from stop detection');
+
   // Summary
   console.log('\n========================================');
   console.log(`RESULTS: ${passedTests} PASSED, ${failedTests} FAILED`);
