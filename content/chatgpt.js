@@ -629,7 +629,7 @@
           setTimeout(() => {
             window.removeEventListener('__PROMPTFLOW_MAIN_DONE__', handler);
             resolve({ success: false, timeout: true });
-          }, 2500);
+          }, 25000);
         });
 
         window.dispatchEvent(
@@ -935,10 +935,11 @@
         lower.includes('oaidalleapiprodscus.blob.core.windows.net') ||
         lower.includes('.oaiusercontent.com') ||
         lower.includes('blob.core.windows.net') ||
-        lower.includes('backend-api/files') ||
+        lower.includes('backend-api/estuary') ||
         lower.includes('dalle') ||
         lower.startsWith('blob:https://chatgpt.com') ||
-        lower.startsWith('blob:http://chatgpt.com')
+        lower.startsWith('blob:http://chatgpt.com') ||
+        lower.startsWith('blob:')
       );
     }
 
@@ -955,14 +956,14 @@
       }
 
       // Exclude user attachments or composer images
-      if (
-        img.closest('[data-message-author-role="user"]') ||
-        img.closest('form') ||
-        img.closest('[class*="attachment"]') ||
-        img.closest('[data-testid*="attachment"]') ||
-        img.closest('[data-testid*="fruitjuice"]') ||
-        img.closest('[data-testid*="composer"]')
-      ) {
+      const isInsideUserMsg = !!img.closest('[data-message-author-role="user"]');
+      const isInsideComposer =
+        !!img.closest('form') ||
+        !!img.closest('[data-testid*="composer"]') ||
+        !!img.closest('#prompt-textarea') ||
+        !!img.closest('[data-testid*="fruitjuice"]');
+
+      if (isInsideUserMsg || isInsideComposer) {
         return true;
       }
 
@@ -987,10 +988,10 @@
       // Exclude tiny icons unless it is a verified OpenAI CDN URL
       const isOpenAI = this.isOpenAIGeneratedImageUrl(url);
       if (!isOpenAI) {
-        if (img.naturalWidth > 0 && img.naturalWidth < 120) return true;
-        if (img.naturalHeight > 0 && img.naturalHeight < 120) return true;
-        if (img.width > 0 && img.width < 120) return true;
-        if (img.height > 0 && img.height < 120) return true;
+        if (img.naturalWidth > 0 && img.naturalWidth < 100) return true;
+        if (img.naturalHeight > 0 && img.naturalHeight < 100) return true;
+        if (img.width > 0 && img.width < 100) return true;
+        if (img.height > 0 && img.height < 100) return true;
       }
 
       return false;
@@ -1166,6 +1167,18 @@
           }
         }
 
+        // Always ensure the very latest assistant turn/message is inspected as fallback
+        const allTurns = Array.from(document.querySelectorAll('article[data-testid^="conversation-turn-"]'));
+        const nonUserTurns = allTurns.filter((art) => !art.querySelector('[data-message-author-role="user"]'));
+        const latestNonUserTurn = nonUserTurns[nonUserTurns.length - 1];
+        if (latestNonUserTurn && !targetScopes.includes(latestNonUserTurn)) {
+          targetScopes.push(latestNonUserTurn);
+        }
+        const latestAssistantMsg = assistantMsgs.slice(-1)[0];
+        if (latestAssistantMsg && !targetScopes.includes(latestAssistantMsg)) {
+          targetScopes.push(latestAssistantMsg);
+        }
+
         // Fast refusal check: if ChatGPT replied with policy warning instead of generating an image
         for (const scope of targetScopes) {
           if (!scope) continue;
@@ -1203,9 +1216,9 @@
 
             if (this.isExcludedImage(img, url)) continue;
 
-            // Check if new: either not in snapshot, OR genuinely inside a newly created assistant scope!
-            const isNewlyCreatedTurn = assistantMsgs.length > targetAssistantIndex || assistantTurns.length > targetTurnIndex;
-            if (!this.existingImagesSnapshot.has(url) || isNewlyCreatedTurn) {
+            // Check if new: must not be in pre-prompt snapshot
+            const isNew = !this.existingImagesSnapshot.has(url);
+            if (isNew) {
               this.wakeUpImage(img);
               candidateImages.push({ img, url });
             }
@@ -1216,7 +1229,16 @@
           for (const a of downloadLinks) {
             const href = a.href;
             if (href && this.isOpenAIGeneratedImageUrl(href) && !this.existingImagesSnapshot.has(href)) {
-              candidateImages.push({ img: null, url: href });
+              candidateImages.push({ img: a.querySelector('img') || null, url: href });
+            }
+          }
+
+          // Background image check
+          const bgEls = scope.querySelectorAll('[style*="background-image"]');
+          for (const el of bgEls) {
+            const match = el.style.backgroundImage.match(/url\(["']?(.*?)["']?\)/);
+            if (match && match[1] && this.isOpenAIGeneratedImageUrl(match[1]) && !this.existingImagesSnapshot.has(match[1])) {
+              candidateImages.push({ img: null, url: match[1] });
             }
           }
         }
