@@ -411,13 +411,13 @@ assert(dv.getUint32(offset + centralDirSize, true) === 0x06054b50, 'ZIP EOCD hea
 assert(zipArchive.length > 0, `ZIP archive successfully assembled: ${zipArchive.length} bytes for 3 mock files`);
 
 // 7. Test 6 Default Fashion E-Commerce Prompts & Manual Override Mechanics
-console.log('\n[Test Suite 7] 6 Default Fashion Prompts & Custom Modification Lifecycle');
+console.log('\n[Test Suite 7] 7 Default Fashion Prompts & Custom Modification Lifecycle');
 
 (async () => {
   const { DEFAULT_PROMPT_TEXTS, DEFAULT_PROMPT_TITLES, createDefaultPrompts, createInitialSession } = await import('../utils/storage.js');
 
-  assert(Array.isArray(DEFAULT_PROMPT_TEXTS) && DEFAULT_PROMPT_TEXTS.length === 6, 'DEFAULT_PROMPT_TEXTS contains exactly 6 prompts');
-  assert(Array.isArray(DEFAULT_PROMPT_TITLES) && DEFAULT_PROMPT_TITLES.length === 6, 'DEFAULT_PROMPT_TITLES contains 6 matching titles');
+  assert(Array.isArray(DEFAULT_PROMPT_TEXTS) && DEFAULT_PROMPT_TEXTS.length === 7, 'DEFAULT_PROMPT_TEXTS contains exactly 7 prompts');
+  assert(Array.isArray(DEFAULT_PROMPT_TITLES) && DEFAULT_PROMPT_TITLES.length === 7, 'DEFAULT_PROMPT_TITLES contains 7 matching titles');
 
   // Verify Prompt 1: Front View (Model in printed T-shirt)
   assert(DEFAULT_PROMPT_TEXTS[0].includes('FRONT VIEW ONLY') && DEFAULT_PROMPT_TEXTS[0].includes('oversized'), 'Prompt 1 contains FRONT VIEW ONLY & oversized T-shirt instructions');
@@ -443,11 +443,14 @@ console.log('\n[Test Suite 7] 6 Default Fashion Prompts & Custom Modification Li
   // Verify Prompt 6: Marketplace Product Listing Infographic
   assert(DEFAULT_PROMPT_TEXTS[5].includes('PRODUCT LISTING INFOGRAPHIC') && (DEFAULT_PROMPT_TEXTS[5].includes('Same as Reference') || DEFAULT_PROMPT_TEXTS[5].includes('Oversized Fit')), 'Prompt 6 contains PRODUCT LISTING INFOGRAPHIC instructions');
 
-  // Verify initial session creation has all 6 prompts populated by default
+  // Verify Prompt 7: Flipkart Catalog Specialist JSON
+  assert(DEFAULT_PROMPT_TEXTS[6].includes('Flipkart catalog specialist') && DEFAULT_PROMPT_TEXTS[6].includes('product_title'), 'Prompt 7 contains Flipkart catalog specialist instructions');
+
+  // Verify initial session creation has all 7 prompts populated by default
   const defaultSession = createInitialSession();
-  assert(defaultSession.prompts.length === 6, 'Initial session contains 6 prompt items');
+  assert(defaultSession.prompts.length === 7, 'Initial session contains 7 prompt items');
   assert(defaultSession.defaultsInitialized === true, 'Initial session marks defaultsInitialized as true');
-  assert(defaultSession.prompts.every(p => p.text && p.text.length > 50), 'All 6 prompts in default session are pre-filled with full text');
+  assert(defaultSession.prompts.every(p => p.text && p.text.length > 50), 'All 7 prompts in default session are pre-filled with full text');
 
   // Verify manual change override: manual edit takes precedence over default
   const testSession = createInitialSession();
@@ -545,12 +548,16 @@ console.log('\n[Test Suite 7] 6 Default Fashion Prompts & Custom Modification Li
     zoomType: 'full_body',
     poseIndices: [0, 0, 0]
   });
-  assert(maleSamePrompts.length === 6, 'buildPromptsForConfig returned 6 prompts');
+  assert(maleSamePrompts.length === 7, 'buildPromptsForConfig returned 7 prompts');
   assert(maleSamePrompts[0].text.includes('FRONT VIEW'), 'Prompt 1 is FRONT VIEW');
   assert(maleSamePrompts[0].text.includes('printed graphic/design clearly visible'), 'Prompt 1 shows model with front print');
   assert(maleSamePrompts[1].text.includes('BACK VIEW'), 'Prompt 2 is BACK VIEW');
   assert(maleSamePrompts[1].text.includes('NO printed graphic'), 'Prompt 2 enforces clean back without print');
   assert(maleSamePrompts[2].text.includes('SIDE VIEW') || maleSamePrompts[2].text.includes('SIDE PROFILE'), 'Prompt 3 is SIDE VIEW');
+  assert(maleSamePrompts[6].title.includes('Flipkart Catalog'), 'Prompt 7 is Flipkart Catalog Specialist');
+  assert(maleSamePrompts[6].skipDownload === true, 'Prompt 7 has skipDownload = true');
+  assert(maleSamePrompts[6].isTextOnly === true, 'Prompt 7 has isTextOnly = true');
+  assert(maleSamePrompts[6].text.includes('Flipkart catalog specialist'), 'Prompt 7 contains Flipkart catalog specialist text');
 
   // Test Female + Oversized + Medium (Preset 2: Pockets Front, Over-Shoulder Right, 90° Left)
   const femaleOversizedPrompts = buildPromptsForConfig({
@@ -574,7 +581,8 @@ console.log('\n[Test Suite 7] 6 Default Fashion Prompts & Custom Modification Li
   assert(queueItem1.id && queueItem1.file.name === 'design-alpha.png', 'Queue item 1 initialized with correct filename');
   assert(queueItem1.poseIndices[0] === 0 && queueItem1.poseIndices[1] === 0 && queueItem1.poseIndices[2] === 0, 'Queue item 1 assigned Preset 0 (Front 0, Back 0, Side 0)');
   assert(queueItem2.poseIndices[0] === 1 && queueItem2.poseIndices[1] === 1 && queueItem2.poseIndices[2] === 1, 'Queue item 2 assigned Preset 1 (Front 1, Back 1, Side 1)');
-  assert(queueItem1.prompts.length === 6 && queueItem2.prompts.length === 6, 'Both queue items contain 6 compiled prompts');
+  assert(queueItem1.prompts.length === 7 && queueItem2.prompts.length === 7, 'Both queue items contain 7 compiled prompts');
+  assert(queueItem1.prompts[6].skipDownload === true && queueItem2.prompts[6].skipDownload === true, 'Queue items prompt 7 has skipDownload set to true');
   assert(queueItem1.prompts[0].text !== queueItem2.prompts[0].text, 'Queue item 1 and 2 have distinct model poses in prompt 1');
   assert(queueItem1.prompts[1].text !== queueItem2.prompts[1].text, 'Queue item 1 and 2 have distinct model poses in prompt 2');
   assert(queueItem1.prompts[2].text !== queueItem2.prompts[2].text, 'Queue item 1 and 2 have distinct model poses in prompt 3');

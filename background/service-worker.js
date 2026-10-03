@@ -343,40 +343,78 @@ class AutomationEngine {
 
               if (this.executionId !== currentRunId || this.stopRequested) break;
 
-              // Fast Wait and Detect Generated Image directly
-              await this.setState(
-                AUTOMATION_STATE.WAITING_FOR_GENERATION,
-                `[Design ${qIdx + 1}/${session.queue.length}] Generating image for Prompt ${i + 1}...`,
-                {},
-                currentRunId
-              );
-              await this.updatePrompt(i, { status: PROMPT_STATUS.GENERATING }, currentRunId);
+              if (prompt.skipDownload || prompt.isTextOnly || i === 6) {
+                // Text-only prompt (e.g. Prompt 7: Flipkart Catalog Specialist JSON)
+                await this.setState(
+                  AUTOMATION_STATE.WAITING_FOR_GENERATION,
+                  `[Design ${qIdx + 1}/${session.queue.length}] Generating Catalog JSON for Prompt ${i + 1}...`,
+                  {},
+                  currentRunId
+                );
+                await this.updatePrompt(i, { status: PROMPT_STATUS.GENERATING }, currentRunId);
 
-              const genRes = await chrome.tabs.sendMessage(tab.id, {
-                type: 'WAIT_AND_DETECT_IMAGE',
-                promptIndex: i + 1,
-                timeoutMinutes: Math.min(settings.generationTimeoutMinutes || 5, 8)
-              });
+                const textRes = await chrome.tabs.sendMessage(tab.id, {
+                  type: 'WAIT_FOR_TEXT_RESPONSE',
+                  promptIndex: i + 1,
+                  timeoutMinutes: Math.min(settings.generationTimeoutMinutes || 5, 8)
+                });
 
-              if (this.executionId !== currentRunId || this.stopRequested) break;
+                if (this.executionId !== currentRunId || this.stopRequested) break;
 
-              if (!genRes || !genRes.success || !genRes.imageUrl) {
-                throw new Error(genRes?.error || 'Image generation failed or timed out');
+                if (!textRes || !textRes.success) {
+                  throw new Error(textRes?.error || 'Catalog text generation failed or timed out');
+                }
+
+                const generatedText = textRes.text || '';
+                logger.success(`Catalog JSON received for Prompt ${i + 1} (${generatedText.length} chars)`);
+
+                // Mark prompt complete and store response text - DO NOT DOWNLOAD RESULT
+                await this.updatePrompt(i, {
+                  status: PROMPT_STATUS.COMPLETED,
+                  imageUrl: null,
+                  textResponse: generatedText,
+                  completedAt: Date.now(),
+                  error: null
+                }, currentRunId);
+
+                promptSuccess = true;
+                logger.success(`Prompt ${i + 1} (Catalog JSON) generated successfully (download skipped)!`);
+              } else {
+                // Fast Wait and Detect Generated Image directly (Prompts 1-6)
+                await this.setState(
+                  AUTOMATION_STATE.WAITING_FOR_GENERATION,
+                  `[Design ${qIdx + 1}/${session.queue.length}] Generating image for Prompt ${i + 1}...`,
+                  {},
+                  currentRunId
+                );
+                await this.updatePrompt(i, { status: PROMPT_STATUS.GENERATING }, currentRunId);
+
+                const genRes = await chrome.tabs.sendMessage(tab.id, {
+                  type: 'WAIT_AND_DETECT_IMAGE',
+                  promptIndex: i + 1,
+                  timeoutMinutes: Math.min(settings.generationTimeoutMinutes || 5, 8)
+                });
+
+                if (this.executionId !== currentRunId || this.stopRequested) break;
+
+                if (!genRes || !genRes.success || !genRes.imageUrl) {
+                  throw new Error(genRes?.error || 'Image generation failed or timed out');
+                }
+
+                const generatedUrl = genRes.imageUrl;
+                logger.success(`Image detected for Prompt ${i + 1}: ${generatedUrl.slice(0, 60)}...`);
+
+                // Mark prompt complete and store image URL
+                await this.updatePrompt(i, {
+                  status: PROMPT_STATUS.COMPLETED,
+                  imageUrl: generatedUrl,
+                  completedAt: Date.now(),
+                  error: null
+                }, currentRunId);
+
+                promptSuccess = true;
+                logger.success(`Prompt ${i + 1} generated successfully!`);
               }
-
-              const generatedUrl = genRes.imageUrl;
-              logger.success(`Image detected for Prompt ${i + 1}: ${generatedUrl.slice(0, 60)}...`);
-
-              // Mark prompt complete and store image URL
-              await this.updatePrompt(i, {
-                status: PROMPT_STATUS.COMPLETED,
-                imageUrl: generatedUrl,
-                completedAt: Date.now(),
-                error: null
-              }, currentRunId);
-
-              promptSuccess = true;
-              logger.success(`Prompt ${i + 1} generated successfully!`);
 
             } catch (promptErr) {
               if (this.executionId !== currentRunId || this.stopRequested) break;

@@ -969,6 +969,53 @@ body {
   margin-top: 6px;
 }
 
+.prompt-generated-preview {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: #F0FDF4;
+  border: 1.5px solid var(--border-pixel-dark);
+  border-radius: var(--radius-xs);
+  box-shadow: 1.5px 1.5px 0px var(--border-pixel-dark);
+}
+
+.prompt-generated-preview.prompt-json-preview {
+  background: #EEF2FF;
+}
+
+.prompt-ready-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-pixel);
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #166534;
+}
+
+.prompt-ready-badge.prompt-json-badge {
+  color: #3730A3;
+}
+
+.btn-copy-json {
+  font-family: var(--font-pixel);
+  font-size: 8.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+  background: #4F46E5;
+  color: #FFFFFF;
+  border: 1.5px solid var(--border-pixel-dark);
+  border-radius: var(--radius-xs);
+  box-shadow: 1.5px 1.5px 0px var(--border-pixel-dark);
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.btn-copy-json:hover {
+  background: #4338CA;
+  transform: translate(0.5px, 0.5px);
+  box-shadow: 1px 1px 0px var(--border-pixel-dark);
+}
+
 /* Status & Progress */
 .section-status {
   background: #FFFFFF;

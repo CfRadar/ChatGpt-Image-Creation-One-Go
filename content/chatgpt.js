@@ -1194,6 +1194,96 @@
 
       throw new Error(`Image generation timed out after ${timeoutMinutes} minutes`);
     }
+
+    /**
+     * Waits for ChatGPT text generation (e.g. Flipkart Catalog JSON) to complete and returns the text.
+     */
+    async waitForTextResponse(timeoutMinutes = 5) {
+      const timeoutMs = timeoutMinutes * 60 * 1000;
+      const startTime = Date.now();
+      const targetAssistantIndex = this.baselineAssistantCount || 0;
+      const targetTurnIndex = this.baselineTurnCount || 0;
+      console.log(`[PromptFlow] Monitoring for assistant text response in turn >= index ${targetAssistantIndex}, turn >= index ${targetTurnIndex}...`);
+
+      // 1. Give ChatGPT up to 15s to initiate generation
+      let generationInitiated = false;
+      const startCheckUntil = Date.now() + 15000;
+      while (Date.now() < startCheckUntil) {
+        if (this.isGenerating()) {
+          generationInitiated = true;
+          console.log('[PromptFlow] Text generation start confirmed (stop button or streaming visible)');
+          break;
+        }
+        const msgs = this.getAssistantMessages();
+        const turns = this.getAssistantTurns();
+        if (msgs.length > targetAssistantIndex || turns.length > targetTurnIndex) {
+          generationInitiated = true;
+          console.log('[PromptFlow] Text generation start confirmed (new assistant turn created)');
+          break;
+        }
+        await sleep(350);
+      }
+
+      // 2. Poll until generation STOPS and text output stabilizes
+      let stabilizedCount = 0;
+      const STABILIZED_TARGET = 3;
+
+      while (Date.now() - startTime < timeoutMs) {
+        // Immediate error check
+        const errorEl = document.querySelector('.text-red-500, [data-testid="error-message"], .border-red-500, [class*="error-message"]');
+        if (errorEl && errorEl.textContent.trim().length > 0) {
+          const errMsg = errorEl.textContent.trim();
+          if (errMsg.toLowerCase().includes('error') || errMsg.toLowerCase().includes('violate') || errMsg.toLowerCase().includes('policy')) {
+            throw new Error(`ChatGPT error: ${errMsg}`);
+          }
+        }
+
+        const isGen = this.isGenerating();
+        const assistantMsgs = this.getAssistantMessages();
+        const assistantTurns = this.getAssistantTurns();
+        const hasNewTurn = (assistantMsgs.length > targetAssistantIndex) || (assistantTurns.length > targetTurnIndex);
+
+        if (hasNewTurn && !isGen) {
+          stabilizedCount++;
+          if (stabilizedCount >= STABILIZED_TARGET) {
+            console.log(`[PromptFlow] Text generation completed on new turn`);
+            break;
+          }
+        } else {
+          stabilizedCount = 0;
+        }
+
+        await sleep(750);
+      }
+
+      // 3. Extract text content from the target assistant message
+      const assistantMsgs = this.getAssistantMessages();
+      let targetScope = null;
+      if (assistantMsgs.length > targetAssistantIndex) {
+        targetScope = assistantMsgs.slice(-1)[0];
+      } else {
+        const turns = this.getAssistantTurns();
+        targetScope = turns.slice(-1)[0] || document.querySelector('article:last-of-type') || document.body;
+      }
+
+      if (!targetScope) {
+        throw new Error('Target assistant message scope could not be located');
+      }
+
+      // Look for code block (since JSON is often inside a pre or code tag)
+      const codeBlock = targetScope.querySelector('pre code, pre, code');
+      let extractedText = '';
+      if (codeBlock) {
+        extractedText = (codeBlock.innerText || codeBlock.textContent || '').trim();
+      }
+      if (!extractedText) {
+        const contentContainer = targetScope.querySelector('.markdown, [class*="markdown"]') || targetScope;
+        extractedText = (contentContainer.innerText || contentContainer.textContent || '').trim();
+      }
+
+      console.log(`[PromptFlow] Successfully captured text response (${extractedText.length} chars)`);
+      return extractedText;
+    }
   }
 
   const adapter = new ChatGPTAdapter();
@@ -1429,6 +1519,14 @@
             const imageUrl = await adapter.waitForGeneratedImage(message.timeoutMinutes || 3);
             overlay.createOrUpdate('PromptFlow', `Image ${message.promptIndex} ready!`, 'completed');
             sendResponse({ success: true, imageUrl });
+            break;
+          }
+
+          case 'WAIT_FOR_TEXT_RESPONSE': {
+            overlay.createOrUpdate('PromptFlow', `Generating Catalog JSON ${message.promptIndex}...`, 'generating');
+            const text = await adapter.waitForTextResponse(message.timeoutMinutes || 5);
+            overlay.createOrUpdate('PromptFlow', `Catalog JSON ${message.promptIndex} ready!`, 'completed');
+            sendResponse({ success: true, text });
             break;
           }
 

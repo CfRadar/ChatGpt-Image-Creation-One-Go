@@ -1185,7 +1185,8 @@ class PopupController {
         }
 
         const existingPreview = item.querySelector('.prompt-generated-preview');
-        if (p.imageUrl && !existingPreview) {
+        if (p.imageUrl && (!existingPreview || existingPreview.classList.contains('prompt-json-preview'))) {
+          if (existingPreview) existingPreview.remove();
           const previewEl = document.createElement('div');
           previewEl.className = 'prompt-generated-preview';
           previewEl.innerHTML = `
@@ -1198,7 +1199,31 @@ class PopupController {
             </div>
           `;
           item.appendChild(previewEl);
-        } else if (!p.imageUrl && existingPreview) {
+        } else if (p.textResponse && (!existingPreview || !existingPreview.classList.contains('prompt-json-preview'))) {
+          if (existingPreview) existingPreview.remove();
+          const previewEl = document.createElement('div');
+          previewEl.className = 'prompt-generated-preview prompt-json-preview';
+          previewEl.innerHTML = `
+            <div class="prompt-ready-badge prompt-json-badge">
+              <svg class="prompt-ready-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="16 18 22 12 16 6"></polyline>
+                <polyline points="8 6 2 12 8 18"></polyline>
+              </svg>
+              <span class="prompt-ready-label" style="color: #4338ca;">Catalog JSON ready (Not downloaded)</span>
+              <button type="button" class="btn-copy-json" style="margin-left: auto; padding: 2px 8px; font-size: 10px; border-radius: 4px; background: #4f46e5; color: white; border: none; cursor: pointer;">Copy JSON</button>
+            </div>
+          `;
+          const btnCopy = previewEl.querySelector('.btn-copy-json');
+          if (btnCopy) {
+            btnCopy.addEventListener('click', (e) => {
+              e.stopPropagation();
+              navigator.clipboard.writeText(p.textResponse);
+              btnCopy.textContent = 'Copied!';
+              setTimeout(() => { btnCopy.textContent = 'Copy JSON'; }, 2000);
+            });
+          }
+          item.appendChild(previewEl);
+        } else if (!p.imageUrl && !p.textResponse && existingPreview) {
           existingPreview.remove();
         }
       });
@@ -1255,6 +1280,29 @@ class PopupController {
             <span class="prompt-ready-label">Image ready (${numStr})</span>
           </div>
         `;
+        item.appendChild(previewEl);
+      } else if (p.textResponse) {
+        const previewEl = document.createElement('div');
+        previewEl.className = 'prompt-generated-preview prompt-json-preview';
+        previewEl.innerHTML = `
+          <div class="prompt-ready-badge prompt-json-badge">
+            <svg class="prompt-ready-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="16 18 22 12 16 6"></polyline>
+              <polyline points="8 6 2 12 8 18"></polyline>
+            </svg>
+            <span class="prompt-ready-label" style="color: #4338ca;">Catalog JSON ready (Not downloaded)</span>
+            <button type="button" class="btn-copy-json" style="margin-left: auto; padding: 2px 8px; font-size: 10px; border-radius: 4px; background: #4f46e5; color: white; border: none; cursor: pointer;">Copy JSON</button>
+          </div>
+        `;
+        const btnCopy = previewEl.querySelector('.btn-copy-json');
+        if (btnCopy) {
+          btnCopy.addEventListener('click', (e) => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(p.textResponse);
+            btnCopy.textContent = 'Copied!';
+            setTimeout(() => { btnCopy.textContent = 'Copy JSON'; }, 2000);
+          });
+        }
         item.appendChild(previewEl);
       }
 

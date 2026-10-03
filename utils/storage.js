@@ -521,6 +521,73 @@ export function calculatePoseIndices(queueIndex = 0, startingOffset = 0) {
   return [presetIndex, presetIndex, presetIndex];
 }
 
+export const FLIPKART_CATALOG_PROMPT = `You are a Flipkart catalog specialist. I have uploaded 6 images of ONE oversized black women's T-shirt design. Return ONLY a valid JSON object (no markdown fences, no explanation) that follows the EXAMPLE below exactly in structure, length and writing style.
+
+HARD LENGTH LIMITS (do not exceed)
+- product_title: 5-7 words, max 45 characters. Generic, with no design name. Always: "Women’s Premium Oversized Printed T-Shirt"
+- product_description: exactly 3 sentences, max 450 characters.
+- key_features: exactly 10 items, each 3-8 words, max 50 characters. No full sentences.
+- key_features_sheet: exactly 4 items, max 25 characters each.
+- search_keywords: exactly 4 items, max 20 characters each.
+- description_override: built ONLY from the fields above in the exact layout shown in the example. Do not add any extra sentences, headings or marketing text. Total must stay under 1000 characters.
+
+CONTENT RULES
+1. Describe only what is visible in the images.
+2. No trademarked brand names, character names or celebrity names. Describe the art generically (e.g. "retro cartoon-inspired graphic print").
+3. Women only. Never write "Men’s/Women’s" or "Unisex".
+4. Sleeves are 3/4 sleeves. Never write "short sleeves" or "half sleeves".
+5. sku_base: lowercase, letters/numbers/underscores only, no spaces, ends with "_os" (e.g. "lobster_os").
+6. Multi-value fields use "::" with no spaces around it.
+7. For pattern, surface_styling, detail_placement and tee_length use ONLY the allowed values below, with exact spelling and capitalisation.
+
+ALLOWED VALUES
+pattern (1-3): Abstract | Animal Print | Applique | Cartoon | Checkered | Chevron/Zig Zag | Colorblock | Conversational | Diamante Print | Embroidered | Floral Print | Geometric Print | Graphic Print | Military Camouflage | Ombre | Polka Print | Printed | Self Design | Solid | Sporty | Striped | Superhero | Tie & Dye | Tribal Print | Typography | Washed | Washed/Ombre
+surface_styling (1-2 or "None"): Applique | Beads & Stones | Bow | Braids | Brand Logo | Buttons | Crochets & Schiffily | Cut-Outs | Cut-work | Epaulettes | Eyelets | Fringed | Knots | Laces | Mesh | Metal Embellishment | None | Patch Work | Pearl | Perforation | Piping Details | Pocket Flap | Pockets | Pompom | Ruffled | Sequins | Shimmer | Side Stripe | Statement Logo | Tassels | Thread Work | Tie-Ups | Twill Tape | Typography | Zipper Details
+detail_placement (1): All Over | Back Panel | Chest | Front Panel | Hemline | Hood | Neckline | None | Pocket | Side | Sleeve
+tee_length (1): Crop | Long | Medium | Short
+
+EXAMPLE (copy this structure, length and style; replace only the design-specific parts)
+{
+  "sku_base": "retro_os",
+  "product_title": "Women’s Premium Oversized Printed T-Shirt",
+  "product_description": "Add a stylish retro touch to your everyday wardrobe with this premium black oversized printed T-shirt. Designed with a relaxed silhouette and a bold retro cartoon-inspired graphic print, this T-shirt combines comfort with a modern streetwear aesthetic. The soft, breathable fabric and oversized fit make it suitable for casual outings, college wear, travel, and everyday styling.",
+  "key_features": [
+    "Premium-quality fabric",
+    "Stylish oversized / relaxed fit",
+    "Bold high-definition front graphic print",
+    "Classic round crew neck",
+    "3/4 sleeves",
+    "Soft and comfortable feel",
+    "Breathable and lightweight construction",
+    "Durable print with vibrant detailing",
+    "Easy to wash and maintain",
+    "Suitable for casual, streetwear and everyday looks"
+  ],
+  "material": "Cotton Blend",
+  "pattern": "Graphic Print",
+  "sleeve_type": "3/4 Sleeve",
+  "neck_type": "Round Neck",
+  "fit_type": "Oversized",
+  "ideal_for": "Women",
+  "color": "Black",
+  "brand_color": "Black",
+  "occasion": "Casual",
+  "style_code": "",
+  "description_override": "Women’s Premium Oversized Printed T-Shirt\\n\\nAdd a stylish retro touch to your everyday wardrobe with this premium black oversized printed T-shirt. Designed with a relaxed silhouette and a bold retro cartoon-inspired graphic print, this T-shirt combines comfort with a modern streetwear aesthetic. The soft, breathable fabric and oversized fit make it suitable for casual outings, college wear, travel, and everyday styling.\\n\\nKey Features:\\n\\nPremium-quality fabric\\nStylish oversized / relaxed fit\\nBold high-definition front graphic print\\nClassic round crew neck\\n3/4 sleeves\\nSoft and comfortable feel\\nBreathable and lightweight construction\\nDurable print with vibrant detailing\\nEasy to wash and maintain\\nSuitable for casual, streetwear and everyday looks\\n\\nStyle: Oversized / Relaxed Fit\\nColor: Black\\nPattern: Graphic Print\\nNeck: Round Neck\\nSleeve: 3/4 Sleeve\\nOccasion: Casual, Streetwear, Daily Wear\\nPrint Placement: Front Only",
+  "search_keywords": "Graphic Print::Cartoon::Oversized::Casual",
+  "key_features_sheet": "Graphic Print::Oversized Fit::Premium Cotton Fabric::Skin-Friendly Fabric",
+  "fabric_care": "Regular Machine Wash",
+  "surface_styling": "Typography",
+  "tee_length": "Medium",
+  "print_coverage": "Chest",
+  "sleeve_details": "No Details",
+  "detail_placement": "Front Panel",
+  "detail_placement_rows": ["S","M","L","XL"]
+}
+
+TASK
+Now produce the JSON for the uploaded design. Keep every fixed field exactly as in the example (material, sleeve_type, neck_type, fit_type, ideal_for, color, brand_color, occasion, style_code, fabric_care, print_coverage, sleeve_details, detail_placement_rows, and the whole template text of description_override). Change only what depends on the design: sku_base, the print wording in product_description and key_features[0], pattern, search_keywords, key_features_sheet[0], surface_styling, tee_length, detail_placement and "Print Placement". Output the JSON only.`;
+
 export function buildPromptsForConfig(config = {}) {
   const genderKey = config.modelGender || 'female';
   const zoomKey = config.zoomType || 'medium';
@@ -757,13 +824,16 @@ Clean white background, realistic product photography, soft studio lighting, sub
 
 No unnecessary models, no lifestyle scene, no clutter, no watermark. Final result should look like a ready-to-use premium marketplace product listing image for Meesho, Amazon, Flipkart or similar e-commerce platforms.`;
 
+  const prompt7 = FLIPKART_CATALOG_PROMPT;
+
   return [
     { id: 1, title: `Front View (${frontPose.shortName})`, text: prompt1 },
     { id: 2, title: `Back View (${backPose.shortName})`, text: prompt2 },
     { id: 3, title: `Side View (${sidePose.shortName})`, text: prompt3 },
     { id: 4, title: detailTitle, text: prompt4 },
     { id: 5, title: 'Graphic Print Close-Up', text: prompt5 },
-    { id: 6, title: 'Listing Infographic', text: prompt6 }
+    { id: 6, title: 'Listing Infographic', text: prompt6 },
+    { id: 7, title: 'Flipkart Catalog Specialist (JSON)', text: prompt7, skipDownload: true, isTextOnly: true }
   ];
 }
 
@@ -773,12 +843,13 @@ export const DEFAULT_PROMPT_TITLES = [
   'Side View (90° Profile Right)',
   'Neckline & Collar Close-Up',
   'Graphic Print Close-Up',
-  'Listing Infographic'
+  'Listing Infographic',
+  'Flipkart Catalog Specialist (JSON)'
 ];
 
 export const DEFAULT_PROMPT_TEXTS = buildPromptsForConfig().map((p) => p.text);
 
-export function createDefaultPrompts(count = 6, config = {}) {
+export function createDefaultPrompts(count = 7, config = {}) {
   const generated = buildPromptsForConfig(config);
   const prompts = [];
   for (let i = 1; i <= count; i++) {
@@ -791,6 +862,9 @@ export function createDefaultPrompts(count = 6, config = {}) {
       status: PROMPT_STATUS.WAITING,
       filename: null,
       imageUrl: null,
+      skipDownload: item.skipDownload || false,
+      isTextOnly: item.isTextOnly || false,
+      textResponse: null,
       retries: 0,
       maxRetries: 3,
       error: null,
@@ -859,6 +933,9 @@ export function createQueueItem(fileData, queueIndex = 0, settings = {}) {
     status: PROMPT_STATUS.WAITING,
     filename: null,
     imageUrl: null,
+    skipDownload: cfg.skipDownload || false,
+    isTextOnly: cfg.isTextOnly || false,
+    textResponse: null,
     retries: 0,
     maxRetries: 3,
     error: null,
@@ -886,7 +963,7 @@ export function createQueueItem(fileData, queueIndex = 0, settings = {}) {
 }
 
 export function createInitialSession() {
-  const defaultPrompts = createDefaultPrompts(6);
+  const defaultPrompts = createDefaultPrompts(7);
   return {
     sessionId: `session_${Date.now()}`,
     state: AUTOMATION_STATE.IDLE,
@@ -957,19 +1034,26 @@ class StorageManager {
       await this.saveSession(session);
       return session;
     }
-    // Ensure all 6 prompts structure exists
-    if (!Array.isArray(session.prompts) || session.prompts.length === 0) {
-      session.prompts = createDefaultPrompts(6);
+    // Ensure all 7 prompts structure exists
+    if (!Array.isArray(session.prompts) || session.prompts.length < 7) {
+      const default7 = createDefaultPrompts(7);
+      if (Array.isArray(session.prompts) && session.prompts.length >= 6) {
+        if (!session.prompts[6]) {
+          session.prompts.push(default7[6]);
+        }
+      } else {
+        session.prompts = default7;
+      }
       session.defaultsInitialized = true;
       await this.saveSession(session);
       return session;
     }
     // If upgrading from older version without default prompts populated,
-    // and all prompts are empty, automatically initialize with 6 default prompts
+    // and all prompts are empty, automatically initialize with 7 default prompts
     if (!session.defaultsInitialized) {
       const allEmpty = session.prompts.every((p) => !p.text || !p.text.trim());
       if (allEmpty) {
-        session.prompts = createDefaultPrompts(session.prompts.length || 6);
+        session.prompts = createDefaultPrompts(session.prompts.length || 7);
       }
       session.defaultsInitialized = true;
       await this.saveSession(session);
