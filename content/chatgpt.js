@@ -967,32 +967,37 @@
         return true;
       }
 
+      // Verified OpenAI / DALL-E generated images must NEVER be excluded as avatars
+      const isOpenAI = this.isOpenAIGeneratedImageUrl(url);
+      if (isOpenAI) {
+        return false;
+      }
+
       // Exclude avatar images
       const alt = (img.getAttribute('alt') || '').toLowerCase();
       const className = (img.className || '').toLowerCase();
       const parentClass = (img.parentElement?.className || '').toLowerCase();
 
-      if (
-        alt.includes('user') ||
-        alt.includes('avatar') ||
-        alt.includes('chatgpt') ||
+      const isAvatar =
+        alt === 'user' ||
+        alt === 'avatar' ||
+        alt === 'user avatar' ||
+        alt === 'chatgpt avatar' ||
         alt.includes('profile') ||
         className.includes('avatar') ||
         parentClass.includes('avatar') ||
         lowerUrl.includes('avatar') ||
-        lowerUrl.includes('gravatar')
-      ) {
+        lowerUrl.includes('gravatar');
+
+      if (isAvatar) {
         return true;
       }
 
-      // Exclude tiny icons unless it is a verified OpenAI CDN URL
-      const isOpenAI = this.isOpenAIGeneratedImageUrl(url);
-      if (!isOpenAI) {
-        if (img.naturalWidth > 0 && img.naturalWidth < 100) return true;
-        if (img.naturalHeight > 0 && img.naturalHeight < 100) return true;
-        if (img.width > 0 && img.width < 100) return true;
-        if (img.height > 0 && img.height < 100) return true;
-      }
+      // Exclude tiny icons
+      if (img.naturalWidth > 0 && img.naturalWidth < 100) return true;
+      if (img.naturalHeight > 0 && img.naturalHeight < 100) return true;
+      if (img.width > 0 && img.width < 100) return true;
+      if (img.height > 0 && img.height < 100) return true;
 
       return false;
     }
@@ -1100,6 +1105,7 @@
     /**
      * Efficiently waits for ChatGPT image generation to complete and returns the new image URL.
      * Searches strictly within the target assistant turn to NEVER detect user reference images.
+     * Uses multi-tier candidate discovery and multi-check stability verification.
      */
     async waitForGeneratedImage(timeoutMinutes = 3) {
       const timeoutMs = timeoutMinutes * 60 * 1000;
@@ -1129,6 +1135,8 @@
 
       let candidateFirstSeenTime = 0;
       let lastCandidateUrl = null;
+      let verificationChecks = 0;
+      let postGenSweepCount = 0;
 
       // 2. Poll until generation STOPS and a new image is found inside the assistant response
       while (Date.now() - startTime < timeoutMs) {
@@ -1150,7 +1158,8 @@
         const assistantMsgs = this.getAssistantMessages();
         const assistantTurns = this.getAssistantTurns();
 
-        // Target ONLY assistant message(s) / turn(s) created for THIS prompt!
+        // Multi-tier scopes for target inspection:
+        // Tier 1: Assistant message(s) / turn(s) created since baseline snapshot
         let targetScopes = [];
         if (assistantMsgs.length > targetAssistantIndex) {
           targetScopes = assistantMsgs.slice(targetAssistantIndex);
@@ -1167,7 +1176,7 @@
           }
         }
 
-        // Always ensure the very latest assistant turn/message is inspected as fallback
+        // Tier 2: Always ensure the very latest assistant turn/message is inspected as fallback
         const allTurns = Array.from(document.querySelectorAll('article[data-testid^="conversation-turn-"]'));
         const nonUserTurns = allTurns.filter((art) => !art.querySelector('[data-message-author-role="user"]'));
         const latestNonUserTurn = nonUserTurns[nonUserTurns.length - 1];
@@ -1177,6 +1186,14 @@
         const latestAssistantMsg = assistantMsgs.slice(-1)[0];
         if (latestAssistantMsg && !targetScopes.includes(latestAssistantMsg)) {
           targetScopes.push(latestAssistantMsg);
+        }
+
+        // Tier 3: If in long conversation, inspect other recent non-user turns
+        if (nonUserTurns.length > 1) {
+          const secondLatest = nonUserTurns[nonUserTurns.length - 2];
+          if (secondLatest && !targetScopes.includes(secondLatest)) {
+            targetScopes.push(secondLatest);
+          }
         }
 
         // Fast refusal check: if ChatGPT replied with policy warning instead of generating an image
@@ -1201,6 +1218,7 @@
 
         const candidateImages = [];
 
+        // Collect candidates from target scopes
         for (const scope of targetScopes) {
           if (!scope) continue;
           // NEVER inspect user message containers
@@ -1243,13 +1261,36 @@
           }
         }
 
+        // Tier 4: Document-wide fallback sweep (if no candidates found in scopes yet)
+        if (candidateImages.length === 0) {
+          const docImages = Array.from(document.querySelectorAll('img, picture img, a[href*="oaiusercontent"], a[href*="blob:"]'));
+          for (const item of docImages) {
+            const isAnchor = item.tagName === 'A';
+            const img = isAnchor ? item.querySelector('img') : item;
+            const url = isAnchor ? item.href : this.extractBestImageUrl(img);
+            if (!url) continue;
+
+            if (this.existingImagesSnapshot.has(url)) continue;
+            if (this.isExcludedImage(img || item, url)) continue;
+
+            if (this.isOpenAIGeneratedImageUrl(url) || (img && img.naturalWidth > 120)) {
+              if (img) this.wakeUpImage(img);
+              candidateImages.push({ img, url });
+            }
+          }
+        }
+
+        // Multi-check candidate verification
         if (candidateImages.length > 0) {
           const latest = candidateImages[candidateImages.length - 1];
           const finalUrl = latest.url;
 
-          // Track URL stability
-          if (lastCandidateUrl !== finalUrl) {
+          // Track URL stability across checks
+          if (lastCandidateUrl === finalUrl) {
+            verificationChecks++;
+          } else {
             lastCandidateUrl = finalUrl;
+            verificationChecks = 1;
             candidateFirstSeenTime = Date.now();
           }
 
@@ -1258,23 +1299,42 @@
           const isComplete = hasImageEl ? latest.img.complete : true;
           const hasNaturalDim = hasImageEl ? (latest.img.naturalWidth > 50 || latest.img.naturalWidth === 0) : true;
           const candidateAgeMs = Date.now() - candidateFirstSeenTime;
+          const REQUIRED_CHECKS = isOpenAIUrl ? 2 : 3;
 
-          // Acceptance criteria:
+          console.log(`[PromptFlow] Image candidate verification check ${verificationChecks}/${REQUIRED_CHECKS}: ${finalUrl.slice(0, 60)}...`);
+
+          // Acceptance criteria verified across multiple checks:
           // 1. Generation has stopped (!isGen) AND image element is complete or URL is verified OpenAI CDN
-          // 2. OR URL is a confirmed OpenAI generated image URL and has been stable for > 1.5s
+          // 2. OR URL is a confirmed OpenAI generated image URL and has been stable for > 1s
           // 3. OR Send button is back and ready to send
           const sendBtnReady = !isGen;
           const isReadyToAccept =
-            (sendBtnReady && (isComplete || isOpenAIUrl) && hasNaturalDim) ||
-            (isOpenAIUrl && candidateAgeMs > 1500) ||
-            (isOpenAIUrl && isComplete && (latest.img ? latest.img.naturalWidth > 50 : true));
+            (verificationChecks >= REQUIRED_CHECKS) && (
+              (sendBtnReady && (isComplete || isOpenAIUrl) && hasNaturalDim) ||
+              (isOpenAIUrl && candidateAgeMs > 1000) ||
+              (isOpenAIUrl && isComplete && (latest.img ? latest.img.naturalWidth > 50 : true))
+            );
 
           if (isReadyToAccept) {
-            await sleep(500);
+            await sleep(400);
             const verifiedUrl = (latest.img ? this.extractBestImageUrl(latest.img) : null) || finalUrl;
             this.existingImagesSnapshot.add(verifiedUrl);
-            console.log('[PromptFlow] Detected newly generated image in assistant message:', verifiedUrl);
+            console.log(`[PromptFlow] Detected & verified newly generated image after ${verificationChecks} checks:`, verifiedUrl);
             return verifiedUrl;
+          }
+        } else if (!isGen) {
+          // If generation finished but candidate not yet found, trigger multi-retry sweep
+          postGenSweepCount++;
+          if (postGenSweepCount <= 10) {
+            console.log(`[PromptFlow] Generation stopped, running image detection sweep ${postGenSweepCount}/10...`);
+            const allImgs = Array.from(document.querySelectorAll('article img, [data-message-author-role="assistant"] img'));
+            allImgs.forEach((img) => this.wakeUpImage(img));
+            try {
+              window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
+              window.dispatchEvent(new Event('resize'));
+            } catch (e) {}
+            await sleep(500);
+            continue;
           }
         }
 

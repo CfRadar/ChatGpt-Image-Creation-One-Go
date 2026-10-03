@@ -832,11 +832,14 @@ console.log('\n[Test Suite 7] 7 Default Fashion Prompts & Custom Modification Li
   // [Test Suite 11] Queue Progression, Image Refusal Handling & Content Policy Compliance
   console.log('\n[Test Suite 11] Multi-Queue Reliability, Auto-Refusal Detection & Content Moderation Safety');
 
-  const { MODEL_GENDERS: mgCheck } = await import('../utils/storage.js');
+  const { MODEL_GENDERS: mgCheck, ZOOM_TYPES: ztCheck } = await import('../utils/storage.js');
   const femaleDesc = (mgCheck.female.description + ' ' + mgCheck.female.styling).toLowerCase();
   assert(!femaleDesc.includes('hot'), 'Female model prompt contains NO "hot" keyword (prevents moderation refusal)');
   assert(!femaleDesc.includes('sexy'), 'Female model prompt contains NO "sexy" keyword (prevents moderation refusal)');
+  assert(!femaleDesc.includes('shorts'), 'Female model prompt contains NO "shorts" keyword (prevents revealing attire refusal)');
+  assert(!femaleDesc.includes('dolphin'), 'Female model prompt contains NO "dolphin shorts" keyword');
   assert(femaleDesc.includes('adult female'), 'Female model prompt retains professional "adult female" description');
+  assert(!ztCheck.medium.description.toLowerCase().includes('just below the shorts'), 'Medium zoom description does not reference shorts cutoff');
 
   const mainWorldScript = fs.readFileSync(path.join(rootDir, 'content/chatgpt-main.js'), 'utf8');
   assert(mainWorldScript.includes('uploadTimeout') || mainWorldScript.includes('progressbar'), 'chatgpt-main.js waits for image upload progress before sending');
@@ -846,6 +849,9 @@ console.log('\n[Test Suite 7] 7 Default Fashion Prompts & Custom Modification Li
   assert(chatgptContentScript.includes('hasPolicyRefusal') || chatgptContentScript.includes('safety guidelines'), 'content/chatgpt.js detects ChatGPT policy refusals instantly');
   assert(chatgptContentScript.includes('ClipboardEvent') && chatgptContentScript.includes('paste'), 'content/chatgpt.js uses paste event for reliable multi-queue image attachment');
   assert(chatgptContentScript.includes('scrollHeight'), 'content/chatgpt.js auto-scrolls chat to ensure virtualized turns & images are rendered');
+  assert(chatgptContentScript.includes('verificationChecks'), 'content/chatgpt.js verifies generated image candidates across multiple consecutive checks');
+  assert(chatgptContentScript.includes('postGenSweepCount'), 'content/chatgpt.js performs active wake-up retry sweeps when generation completes');
+  assert(serviceWorkerCode.includes('promptSubmitted = false'), 'service-worker.js resets promptSubmitted on failure so retries re-dispatch prompt');
 
   // Summary
   console.log('\n========================================');

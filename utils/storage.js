@@ -79,7 +79,7 @@ export const FRONT_POSES = [
     name: 'Front 2: Hands in Pockets Casual',
     shortName: 'Pockets Front',
     direction: 'FRONT VIEW - HANDS IN POCKETS',
-    description: 'Standing in a relaxed streetwear stance with thumbs or hands tucked naturally into shorts/pants pockets, shoulders dropped comfortably, displaying the front chest print cleanly without creasing or obstruction.'
+    description: 'Standing in a relaxed streetwear stance with thumbs or hands tucked naturally into trouser pockets, shoulders dropped comfortably, displaying the front chest print cleanly without creasing or obstruction.'
   },
   {
     id: 3,
@@ -170,7 +170,7 @@ export const BACK_POSES = [
     name: 'Back 3: Hands in Rear Pockets Stance',
     shortName: 'Rear Pockets Back',
     direction: 'BACK VIEW - HANDS IN REAR POCKETS',
-    description: 'Standing facing away from the camera with thumbs hooked casually into the back pockets of shorts/chinos, pulling the back of the T-shirt taut and smooth to showcase shoulder width and clean back construction.'
+    description: 'Standing facing away from the camera with thumbs hooked casually into the back pockets of chinos/trousers, pulling the back of the T-shirt taut and smooth to showcase shoulder width and clean back construction.'
   },
   {
     id: 4,
@@ -330,13 +330,13 @@ export const MODEL_GENDERS = {
     id: 'female',
     label: 'Female Model',
     description: 'an elegant, stylish, and professional adult female fashion model with an athletic build, radiant skin, and graceful poise',
-    styling: 'The model is styled wearing clean tailored minimalist dark shorts beneath the garment. The model has gorgeous long dark wavy hair casually draped over her shoulders, radiant skin, tasteful makeup, and a warm, confident, friendly, and charming smile looking toward the camera.'
+    styling: 'The model is styled wearing clean tailored dark denim jeans or casual trousers. The model has gorgeous long dark wavy hair casually draped over her shoulders, radiant skin, tasteful makeup, and a warm, confident, friendly, and charming smile looking toward the camera.'
   },
   male: {
     id: 'male',
     label: 'Male Model',
     description: 'a handsome, athletic, and stylish adult male fashion model with a fit build and well-groomed hair',
-    styling: 'The model is styled wearing clean tailored dark streetwear shorts/chinos beneath the garment. The model has modern well-groomed hair, confident masculine posture, radiant skin, and a friendly, charismatic expression looking toward the camera.'
+    styling: 'The model is styled wearing clean tailored dark streetwear trousers/chinos. The model has modern well-groomed hair, confident masculine posture, radiant skin, and a friendly, charismatic expression looking toward the camera.'
   }
 };
 
@@ -382,7 +382,7 @@ export const ZOOM_TYPES = {
   medium: {
     id: 'medium',
     label: 'Medium Shot (Head to Mid-Thigh)',
-    description: 'Medium-shot portrait, tightly framed from just above the model\'s head down to MID-THIGH only. The bottom of the image cuts off at mid-thigh, just below the shorts. ABSOLUTELY NO knees, NO lower legs, NO calves, NO feet, NO sneakers/shoes, and NO floor in the frame. The model\'s head, face, and the entire T-shirt must dominate and fill the frame vertically.'
+    description: 'Medium-shot portrait, tightly framed from just above the model\'s head down to MID-THIGH only. The bottom of the image cuts off at mid-thigh level. ABSOLUTELY NO knees, NO lower legs, NO calves, NO feet, NO sneakers/shoes, and NO floor in the frame. The model\'s head, face, and the entire T-shirt must dominate and fill the frame vertically.'
   },
   full_body: {
     id: 'full_body',
@@ -1058,10 +1058,46 @@ class StorageManager {
       session.defaultsInitialized = true;
       await this.saveSession(session);
     }
+
     // Ensure queue structure exists
     if (!Array.isArray(session.queue)) {
       session.queue = [];
       session.currentQueueIndex = 0;
+      await this.saveSession(session);
+    }
+
+    // Sanitize any saved prompts in session or queue to eliminate safety moderation triggers
+    let promptsSanitized = false;
+    const sanitizeText = (txt) => {
+      if (!txt || typeof txt !== 'string') return txt;
+      let clean = txt;
+      if (clean.includes('shorts beneath the garment') || clean.includes('just below the shorts') || clean.includes('Dolphin shorts')) {
+        promptsSanitized = true;
+        clean = clean
+          .replace(/clean tailored minimalist dark shorts beneath the garment/gi, 'clean tailored dark denim jeans or casual trousers')
+          .replace(/clean tailored dark streetwear shorts\/chinos beneath the garment/gi, 'clean tailored dark streetwear trousers/chinos')
+          .replace(/just below the shorts\.\s*/gi, 'level. ')
+          .replace(/shorts beneath the garment/gi, 'dark denim jeans or casual trousers')
+          .replace(/Dolphin shorts/gi, 'tailored dark denim');
+      }
+      return clean;
+    };
+
+    if (Array.isArray(session.prompts)) {
+      session.prompts.forEach((p) => {
+        if (p.text) p.text = sanitizeText(p.text);
+      });
+    }
+    if (Array.isArray(session.queue)) {
+      session.queue.forEach((item) => {
+        if (Array.isArray(item.prompts)) {
+          item.prompts.forEach((p) => {
+            if (p.text) p.text = sanitizeText(p.text);
+          });
+        }
+      });
+    }
+    if (promptsSanitized) {
       await this.saveSession(session);
     }
 

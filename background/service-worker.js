@@ -426,7 +426,8 @@ class AutomationEngine {
                 }, currentRunId);
                 logger.error(`Prompt ${i + 1} marked as failed.`);
               } else {
-                await new Promise((r) => setTimeout(r, 2000));
+                promptSubmitted = false; // Allow clean re-submission on next attempt
+                await new Promise((r) => setTimeout(r, 2500));
               }
             }
           }
